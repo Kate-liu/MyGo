@@ -1,3 +1,6 @@
 # delete mac default file DS_Store
 *.DS_Store
 
+
+# idea fiels
+*/.idea
