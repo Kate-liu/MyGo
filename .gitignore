@@ -4,3 +4,7 @@
 
 # idea fiels
 */.idea
+
+
+# images
+*/*.assets/*
