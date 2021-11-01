@@ -409,7 +409,731 @@ func main() {
 
 ## 项目部署
 
+部署过程分成 2 大步。
 
+1. 安装和配置数据库：需要安装和配置 MariaDB、Redis 和 MongoDB。
+2. 安装和配置 IAM 服务：需要安装和配置 iam-apiserver、iam-authz-server、iam-pump、iamctl 和 man 文件。
+
+### 下载 IAM 项目代码
+
+因为 IAM 的安装脚本存放在 iam 代码仓库中，安装需要的二进制文件也需要通过 iam 代码构建，所以在安装之前，需要先下载 iam 代码：
+
+```bash
+$ mkdir -p $WORKSPACE/golang/src/github.com/marmotedu
+$ cd $WORKSPACE/golang/src/github.com/marmotedu
+$ git clone --depth=1 https://github.com/marmotedu/iam
+```
+
+其中，marmotedu 和 marmotedu/iam 目录存放了本实战项目的代码，在学习过程中，需要频繁访问这 2 个目录，为了访问方便，可以追加如下 2 个环境变量和 2 个alias 到$HOME/.bashrc 文件中：
+
+```bash
+$ tee -a $HOME/.bashrc << 'EOF'
+# Alias for qiuick access
+export GOWORK="$WORKSPACE/golang/src"
+export IAM_ROOT="$GOWORK/github.com/marmotedu/iam"
+alias mm="cd $GOWORK/github.com/marmotedu"
+alias i="cd $GOWORK/github.com/marmotedu/iam"
+EOF
+$ bash
+```
+
+之后，可以先通过执行 alias 命令 mm 访问 `$GOWORK/github.com/marmotedu` 目
+录，再通过执行 alias 命令 i 访问 `$GOWORK/github.com/marmotedu/iam` 目录。
+
+这里建议善用 alias，将常用操作配置成 alias，方便以后操作。
+
+在安装配置之前需要执行以下命令 export going 用户的密码，这里假设密码是iam59!z$：
+
+```bash
+export LINUX_PASSWORD='iam59!z$'
+
+# export LINUX_PASSWORD='going'
+# ps: 如果执行export 之后，在安装的过程中，执行 xxx.sh 文件，就可以内部直接使用该环境变量
+```
+
+
+
+### 安装和配置数据库
+
+因为 IAM 系统用到了 MariaDB、Redis、MongoDB 数据库来存储数据，而 IAM 服务在启动时会先尝试连接这些数据库，所以为了避免启动时连接数据库失败，这里先来安装需要的数据库。
+
+#### 安装和配置 MariaDB
+
+IAM 会把 REST 资源的定义信息存储在关系型数据库中，关系型数据库选择了 MariaDB。
+
+为啥选择 MariaDB，而不是 MySQL 呢？
+
+选择 MariaDB 一方面是因为它是发展最快的 MySQL 分支，相比 MySQL，它加入了很多新的特性，并且它能够完全兼容MySQL，包括 API 和命令行。另一方面是因为 MariaDB 是开源的，而且迭代速度很快。
+
+首先，可以通过以下命令安装和配置 MariaDB，并将 Root 密码设置为 iam59!z$：
+
+```bash
+$ cd $IAM_ROOT
+$ ./scripts/install/mariadb.sh iam::mariadb::install
+```
+
+然后，可以通过以下命令，来测试 MariaDB 是否安装成功。
+
+```bash
+$ mysql -h127.0.0.1 -uroot -p'iam59!z$'
+MariaDB [(none)]>
+```
+
+
+
+#### 安装和配置 Redis
+
+在 IAM 系统中，由于 iam-authz-server 是从 iam-apiserver 拉取并缓存用户的密钥 / 策略信息的，因此同一份密钥 / 策略数据会分别存在 2 个服务中，这可能会出现数据不一致的情况。
+
+数据不一致会带来一些问题，例如当通过 iam-apiserver 创建了一对密钥，但是这对密钥还没有被 iam-authz-server 缓存，这时候通过这对密钥访问 iam-authz-server 就会访问失败。
+
+为了保证数据的一致性，可以使用 Redis 的发布订阅 (pub/sub) 功能进行消息通知。
+
+同时，iam-authz-server 也会将授权审计日志缓存到 Redis 中，所以也需要安装 Redis key-value 数据库。
+
+可以通过以下命令来安装和配置 Redis，并将 Redis 的初始密码设置为 iam59!z$ ：
+
+```bash
+$ cd $IAM_ROOT
+$ ./scripts/install/redis.sh iam::redis::install
+```
+
+这里要注意，scripts/install/redis.sh 脚本中 iam::redis::install 函数对 Redis 做了一些配置，例如修改 Redis 使其以守护进程的方式运行、修改 Redis 的密码为 iam59!z$ 等，详细配置可参考函数 iam::redis::install 函数。
+
+安装完成后，可以通过以下命令，来测试 Redis 是否安装成功：
+
+```bash
+$ redis-cli -h 127.0.0.1 -p 6379 -a 'iam59!z$'  # 连接 Redis，-h 指定主机，-p 指定监听端口，-a 指定登录密码
+127.0.0.1:6379>
+```
+
+
+
+#### 安装和配置 MongoDB
+
+因为 iam-pump 会将 iam-authz-server 产生的数据处理后存储在 MongoDB 中，所以也需要安装 MongoDB 数据库。
+
+主要分两步安装：首先安装 MongoDB，然后再创建 MongoDB 账号。
+
+##### 第 1 步，安装 MongoDB
+
+首先，可以通过以下 4 步来安装 MongoDB。
+
+1. 配置 MongoDB yum 源，并安装 MongoDB。
+
+CentOS 8.x 系统默认没有配置安装 MongoDB 需要的 yum 源，所以需要先配置好 yum 源再安装：
+
+```bash
+$ sudo tee /etc/yum.repos.d/mongodb-org-4.4.repo<<'EOF'
+[mongodb-org-4.4]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.4/x86_64
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-4.4.asc
+EOF
+
+$ sudo yum install -y mongodb-org
+
+# ps: 由于 mongodb 的 yum 源的配置文件不存在，需要进行新建。
+```
+
+2. 关闭 SELinux。
+
+在安装的过程中，SELinux 有可能会阻止 MongoDB 访问 /sys/fs/cgroup，所以还需要关闭 SELinux。
+
+```bash
+$ sudo setenforce 0
+$ sudo sed -i 's/^SELINUX=.*$/SELINUX=disabled/' /etc/selinux/config  # 永久关闭 SELINUX
+```
+
+3. 开启外网访问权限和登录验证.
+
+MongoDB 安装完之后，默认情况下是不会开启外网访问权限和登录验证，为了方便使用，建议先开启这些功能，执行如下命令开启：
+
+```bash
+$ sudo sed -i '/bindIp/{s/127.0.0.1/0.0.0.0/}' /etc/mongod.conf
+$ sudo sed -i '/^#security/a\security:\n authorization: enabled' /etc/mongod.conf
+```
+
+4. 启动 MongoDB。
+
+配置完 MongoDB 之后，就可以启动它了，具体的命令如下：
+
+```bash
+$ sudo systemctl start mongod
+$ sudo systemctl enable mongod  # 设置开机启动
+$ sudo systemctl status mongod  # 查看 mongod 运行状态，如果输出中包含 active (running) 字样说明 mongod 成功启动
+```
+
+安装完 MongoDB 后，就可以通过 mongo 命令登录 MongoDB Shell。如果没有报错，就说明 MongoDB 被成功安装了。
+
+```bash
+$ mongo --quiet "mongodb://127.0.0.1:27017"
+>
+```
+
+##### 第 2 步，创建 MongoDB 账号
+
+安装完 MongoDB 之后，默认是没有用户账号的，为了方便 IAM 服务使用，需要先创建好管理员账号，通过管理员账户登录 MongoDB，可以执行创建普通用户、数据库等操作。
+
+1. 创建管理员账户。
+
+首先，通过 use admin 指令切换到 admin 数据库，再通过 db.auth("用户名"，"用户密码") 验证用户登录权限。如果返回 1 表示验证成功；如果返回 0 表示验证失败。具体的命令如下：
+
+```bash
+$ mongo --quiet "mongodb://127.0.0.1:27017"
+> use admin
+switched to db admin
+> db.createUser({user:"root",pwd:"iam59!z$",roles:["root"]})
+Successfully added user: { "user" : "root", "roles" : [ "root" ] }
+> db.auth("root", "iam59!z$")
+1
+```
+
+此外，如果想删除用户，可以使用 db.dropUser("用户名") 命令。
+
+db.createUser 用到了以下 3 个参数。
+
+- user: 用户名。
+- pwd: 用户密码。
+- roles: 用来设置用户的权限，比如读、读写、写等。
+
+因为 admin 用户具有 MongoDB 的 Root 权限，权限过大安全性会降低。为了提高安全性，还需要创建一个 iam 普通用户来连接和操作 MongoDB。
+
+2. 创建 iam 用户，命令如下：
+
+```bash
+$ mongo --quiet mongodb://root:'iam59!z$'@127.0.0.1:27017/tyk_analytics?authSource=admin # 用管理员账户连接 MongoDB
+> use iam_analytics
+switched to db iam_analytics
+> db.createUser({user:"iam",pwd:"iam59!z$",roles:["dbOwner"]})
+Successfully added user: { "user" : "iam", "roles" : [ "dbOwner" ] }
+> db.auth("iam", "iam59!z$")
+1
+```
+
+创建完 iam 普通用户后，就可以通过 iam 用户登录 MongoDB 了：
+
+```bash
+$ mongo --quiet mongodb://iam:'iam59!z$'@127.0.0.1:27017/iam_analytics?authSource=iam_analytics
+```
+
+至此，成功安装了 IAM 系统需要的数据库 MariaDB、Redis 和 MongoDB。
+
+
+
+### 安装和配置 IAM 系统
+
+要想完成 IAM 系统的安装，还需要安装和配置 iam-apiserver、iam-authz-server、iam-pump 和 iamctl。
+
+#### 准备工作
+
+在开始安装之前，需要先做一些准备工作，主要有 5 步。
+
+1. 初始化 MariaDB 数据库，创建 iam 数据库。
+2. 配置 scripts/install/environment.sh。
+3. 创建需要的目录。
+4. 创建 CA 根证书和密钥。
+5. 配置 hosts。
+
+##### 第 1 步，初始化 MariaDB 数据库，创建 iam 数据库
+
+安装完 MariaDB 数据库之后，需要在 MariaDB 数据库中创建 IAM 系统需要的数据库、表和存储过程，以及创建 SQL 语句保存在 IAM 代码仓库中的 configs/iam.sql 文件中。具体的创建步骤如下。
+
+1. 登录数据库并创建 iam 用户。
+
+```bash
+$ cd $IAM_ROOT
+$ mysql -h127.0.0.1 -P3306 -uroot -p'iam59!z$'  # 连接 MariaDB，-h 指定主机，-P 指定监听端口，-u 指定登录用户，-p 指定登录密码
+MariaDB [(none)]> grant all on iam.* TO iam@127.0.0.1 identified by 'iam59!z$';
+Query OK, 0 rows affected (0.000 sec)
+MariaDB [(none)]> flush privileges;
+Query OK, 0 rows affected (0.000 sec)
+```
+
+2. 用 iam 用户登录 MariaDB，执行 iam.sql 文件，创建 iam 数据库。
+
+```bash
+$ mysql -h127.0.0.1 -P3306 -uiam -p'iam59!z$'
+MariaDB [(none)]> source configs/iam.sql;
+MariaDB [iam]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| iam                |
+| information_schema |
+| test               |
++--------------------+
+3 rows in set (0.000 sec)
+```
+
+上面的命令会创建 iam 数据库，并创建以下数据库资源。
+
+- 表：
+  - user 是用户表，用来存放用户信息；
+  - secret 是密钥表，用来存放密钥信息；
+  - policy是策略表，用来存放授权策略信息；
+  - policy_audit 是策略历史表，被删除的策略会被转存到该表。
+- admin 用户：
+  - 在 user 表中，我们需要创建一个管理员用户，用户名是 admin，密码是Admin@2021。
+- 存储过程：
+  - 删除用户时会自动删除该用户所属的密钥和策略信息。
+
+##### 第 2 步，配置 scripts/install/environment.sh
+
+IAM 组件的安装配置都是通过环境变量文件 scripts/install/environment.sh 进行配置的，所以要先配置好 scripts/install/environment.sh 文件。
+
+这里，可以直接使用默认值，提高安装效率。
+
+##### 第 3 步，创建需要的目录
+
+在安装和运行 IAM 系统的时候，需要将配置、二进制文件和数据文件存放到指定的目录。所以需要先创建好这些目录，创建步骤如下。
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ sudo mkdir -p ${IAM_DATA_DIR}/{iam-apiserver,iam-authz-server,iam-pump}  # 创建 Systemd WorkingDirectory 目录
+$ sudo mkdir -p ${IAM_INSTALL_DIR}/bin #创建 IAM 系统安装目录
+$ sudo mkdir -p ${IAM_CONFIG_DIR}/cert # 创建 IAM 系统配置文件存放目录
+$ sudo mkdir -p ${IAM_LOG_DIR} # 创建 IAM 日志文件存放目录
+```
+
+##### 第 4 步， 创建 CA 根证书和密钥
+
+为了确保安全，IAM 系统各组件需要使用 x509 证书对通信进行加密和认证。所以，这里需要先创建 CA 证书。CA 根证书是所有组件共享的，只需要创建一个 CA 证书，后续创建的所有证书都由它签名。
+
+可以使用 CloudFlare 的 PKI 工具集 cfssl 来创建所有的证书。
+
+1. 安装 cfssl 工具集。
+
+可以直接安装 cfssl 已经编译好的二进制文件，cfssl 工具集中包含很多工具，这里需要安装 cfssl、cfssljson、cfssl-certinfo，功能如下。
+
+- cfssl：证书签发工具。
+- cfssljson：将 cfssl 生成的证书（json 格式）变为文件承载式证书。
+
+这两个工具的安装方法如下：
+
+```bash
+$ cd $IAM_ROOT
+$ ./scripts/install/install.sh iam::install::install_cfssl
+
+# ps: 执行这个命令时候，需要的安装时间会比较长，30分钟左右，耐心，出错之后，可以选择重新安装，总会安装成功。
+```
+
+
+
+# 11.2号继续完成后续内容
+
+2. 创建配置文件。
+
+CA 配置文件是用来配置根证书的使用场景 (profile) 和具体参数 (usage、过期时间、服务端认证、客户端认证、加密等)，可以在签名其它证书时用来指定特定场景：
+
+```bash
+$ cd $IAM_ROOT
+$ tee ca-config.json << EOF
+{
+   "signing":{
+      "default":{
+         "expiry":"87600h"
+      },
+      "profiles":{
+         "iam":{
+            "usages":[
+               "signing",
+               "key encipherment",
+               "server auth",
+               "client auth"
+            ],
+            "expiry":"876000h"
+         }
+      }
+   }
+}
+EOF
+```
+
+上面的 JSON 配置中，有一些字段解释如下。
+
+- signing：表示该证书可用于签名其它证书（生成的 ca.pem 证书中 CA=TRUE）。
+- server auth：表示 client 可以用该证书对 server 提供的证书进行验证。
+- client auth：表示 server 可以用该证书对 client 提供的证书进行验证。
+- expiry：876000h，证书有效期设置为 100 年。
+
+3. 创建证书签名请求文件。
+
+创建用来生成 CA 证书签名请求（CSR）的 JSON 配置文件：
+
+```bash
+$ cd $IAM_ROOT
+$ tee ca-csr.json << EOF
+{
+   "CN":"iam-ca",
+   "key":{
+      "algo":"rsa",
+      "size":2048
+   },
+   "names":[
+      {
+         "C":"CN",
+         "ST":"BeiJing",
+         "L":"BeiJing",
+         "O":"marmotedu",
+         "OU":"iam"
+      }
+   ],
+   "ca":{
+      "expiry":"876000h"
+   }
+}
+EOF
+```
+
+上面的 JSON 配置中，有一些字段解释如下。
+
+- C：Country，国家。
+- ST：State，省份。
+- L：Locality (L) or City，城市。
+- CN：Common Name，iam-apiserver 从证书中提取该字段作为请求的用户名 (User Name) ，浏览器使用该字段验证网站是否合法。
+- O：Organization，iam-apiserver 从证书中提取该字段作为请求用户所属的组(Group)。
+- OU：Company division (or Organization Unit – OU)，部门 / 单位。
+
+除此之外，还有两点需要注意。
+
+- 不同证书 csr 文件的 CN、C、ST、L、O、OU 组合必须不同，否则可能出现 PEER'S CERTIFICATE HAS AN INVALID SIGNATURE 错误。
+- 后续创建证书的 csr 文件时，CN、OU 都不相同（C、ST、L、O 相同），以达到区分的目的。
+
+4. 创建 CA 证书和私钥
+
+首先，通过 cfssl gencert 命令来创建：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+$ ls ca*
+ca-config.json ca.csr ca-csr.json ca-key.pem ca.pem
+$ sudo mv ca* ${IAM_CONFIG_DIR}/cert # 需要将证书文件拷贝到指定文件夹下（分发证书），方便各组件引用
+```
+
+上述命令会创建运行 CA 所必需的文件 ca-key.pem（私钥）和 ca.pem（证书），还会生成 ca.csr（证书签名请求），用于交叉签名或重新签名。
+
+创建完之后，可以通过 cfssl certinfo 命名查看 cert 和 csr 信息：
+
+```bash
+$ cfssl certinfo -cert ${IAM_CONFIG_DIR}/cert/ca.pem # 查看 cert(证书信息)
+$ cfssl certinfo -csr ${IAM_CONFIG_DIR}/cert/ca.csr # 查看 CSR(证书签名请求)信息
+```
+
+##### 第 5 步，配置 hosts
+
+iam 通过域名访问 API 接口，因为这些域名没有注册过，还不能在互联网上解析，所以需要配置 hosts，具体的操作如下：
+
+```bash
+$ sudo tee -a /etc/hosts <<EOF
+127.0.0.1 iam.api.marmotedu.com
+127.0.0.1 iam.authz.marmotedu.com
+EOF
+```
+
+
+
+#### 安装和配置 iam-apiserver
+
+完成了准备工作之后，就可以安装 IAM 系统的各个组件了。首先通过以下 3 步来安装 iam-apiserver 服务。
+
+##### 第 1 步，创建 iam-apiserver 证书和私钥
+
+其它服务为了安全都是通过 HTTPS 协议访问 iam-apiserver，所以要先创建 iamapiserver 证书和私钥。
+
+1. 创建证书签名请求：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ tee iam-apiserver-csr.json <<EOF
+{
+   "CN":"iam-apiserver",
+   "key":{
+      "algo":"rsa",
+      "size":2048
+   },
+   "names":[
+      {
+         "C":"CN",
+         "ST":"BeiJing",
+         "L":"BeiJing",
+         "O":"marmotedu",
+         "OU":"iam-apiserver"
+      }
+   ],
+   "hosts":[
+      "127.0.0.1",
+      "localhost",
+      "iam.api.marmotedu.com"
+   ]
+}
+EOF
+```
+
+代码中的 hosts 字段是用来指定授权使用该证书的 IP 和域名列表，上面的 hosts 列出了 iam-apiserver 服务的 IP 和域名。
+
+2. 生成证书和私钥：
+
+```bash
+$ cfssl gencert -ca=${IAM_CONFIG_DIR}/cert/ca.pem \
+-ca-key=${IAM_CONFIG_DIR}/cert/ca-key.pem \
+-config=${IAM_CONFIG_DIR}/cert/ca-config.json \
+-profile=iam iam-apiserver-csr.json | cfssljson -bare iam-apiserver
+$ sudo mv iam-apiserver*pem ${IAM_CONFIG_DIR}/cert # 将生成的证书和私钥文件拷贝到配置文件目录
+```
+
+##### 第 2 步，安装并运行 iam-apiserver
+
+iam-apiserver 作为 iam 系统的核心组件，需要第一个安装。
+
+1. 安装 iam-apiserver 可执行程序：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ make build BINS=iam-apiserver
+$ sudo cp _output/platforms/linux/amd64/iam-apiserver ${IAM_INSTALL_DIR}/bin
+```
+
+2. 生成并安装 iam-apiserver 的配置文件（iam-apiserver.yaml）：
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh configs/iam-apiserver.yaml > iam-apiserver.yaml
+$ sudo mv iam-apiserver.yaml ${IAM_CONFIG_DIR}
+```
+
+3. 创建并安装 iam-apiserver systemd unit 文件：
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh init/iam-apiserver.service > iam-apiserver.service
+$ sudo mv iam-apiserver.service /etc/systemd/system/
+```
+
+4. 启动 iam-apiserver 服务：
+
+```bash
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable iam-apiserver
+$ sudo systemctl restart iam-apiserver
+$ systemctl status iam-apiserver # 查看 iam-apiserver 运行状态，如果输出中包含 active (running)字样说明 iam-apiserver 成功启动
+```
+
+##### 第 3 步，测试 iam-apiserver 是否成功安装
+
+测试 iam-apiserver 主要是测试 RESTful 资源的 CURD：用户 CURD、密钥 CURD、授权策略 CURD。
+
+首先，需要获取访问 iam-apiserver 的 Token，请求如下 API 访问：
+
+```bash
+$ curl -s -XPOST -H'Content-Type: application/json' -d'{"username":"admin","password":"Admin@2021"}'
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0
+```
+
+代码中下面的 HTTP 请求通过-H'Authorization: Bearer <Token>' 指定认证头信息，将上面请求的 Token 替换 <Token> 。
+
+###### 用户 CURD
+
+创建用户、列出用户、获取用户详细信息、修改用户、删除单个用户、批量删除用户，请求方法如下：
+
+```bash
+# 创建用户
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 列出用户
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 获取 colin 用户的详细信息
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 修改 colin 用户
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 删除 colin 用户
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 批量删除用户
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+```
+
+###### 密钥 CURD
+
+创建密钥、列出密钥、获取密钥详细信息、修改密钥、删除密钥请求方法如下：
+
+```bash
+# 创建 secret0 密钥
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 列出所有密钥
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 获取 secret0 密钥的详细信息
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 修改 secret0 密钥
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 删除 secret0 密钥
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+```
+
+这里要注意，因为密钥属于重要资源，被删除会导致所有的访问请求失败，所以密钥不支持批量删除。
+
+###### 授权策略 CURD
+
+创建策略、列出策略、获取策略详细信息、修改策略、删除策略请求方法如下：
+
+```bash
+# 创建策略
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 列出所有策略
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 获取 policy0 策略的详细信息
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 修改 policy 策略
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+# 删除 policy0 策略
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+```
+
+#### 安装 iamctl
+
+上面，安装了 iam 系统的 API 服务。但是想要访问 iam 服务，还需要安装客户端工具 iamctl。具体来说，可以通过 3 步完成 iamctl 的安装和配置。
+
+##### 第 1 步，创建 iamctl 证书和私钥
+
+iamctl 使用 https 协议与 iam-apiserver 进行安全通信，iam-apiserver 对 iamctl 请求包含的证书进行认证和授权。iamctl 后续用于 iam 系统访问和管理，所以这里创建具有最高权限的 admin 证书。
+
+1. 创建证书签名请求。
+
+下面创建的证书只会被 iamctl 当作 client 证书使用，所以 hosts 字段为空。代码如下：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ cat > admin-csr.json <<EOF
+{
+   "CN":"admin",
+   "key":{
+      "algo":"rsa",
+      "size":2048
+   },
+   "names":[
+      {
+         "C":"CN",
+         "ST":"BeiJing",
+         "L":"BeiJing",
+         "O":"marmotedu",
+         "OU":"iamctl"
+      }
+   ],
+   "hosts":[
+      
+   ]
+}
+EOF
+```
+
+2. 生成证书和私钥：
+
+```bash
+$ cfssl gencert -ca=${IAM_CONFIG_DIR}/cert/ca.pem \
+-ca-key=${IAM_CONFIG_DIR}/cert/ca-key.pem \
+-config=${IAM_CONFIG_DIR}/cert/ca-config.json \
+-profile=iam admin-csr.json | cfssljson -bare admin
+$ mkdir -p $(dirname ${CONFIG_USER_CLIENT_CERTIFICATE}) $(dirname ${CONFIG_USER_CLIENT_KEY}) # 创建客户端证书存放的目录
+$ mv admin.pem ${CONFIG_USER_CLIENT_CERTIFICATE} # 安装 TLS 的客户端证书
+$ mv admin-key.pem ${CONFIG_USER_CLIENT_KEY} # 安装 TLS 的客户端私钥文件
+```
+
+##### 第 2 步，安装 iamctl
+
+iamctl 是 IAM 系统的客户端工具，其安装位置和 iam-apiserver、iam-authz-server、iam-pump 位置不同，为了能够在 shell 下直接运行 iamctl 命令，需要将 iamctl 安装到`$HOME/bin` 下，同时将 iamctl 的配置存放在默认加载的目录下：`$HOME/.iam`。主要分 2 步进行。
+
+1. 安装 iamctl 可执行程序：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ make build BINS=iamctl
+$ cp _output/platforms/linux/amd64/iamctl $HOME/bin
+```
+
+2. 生成并安装 iamctl 的配置文件（config）：
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh configs/config > config
+$ mkdir -p $HOME/.iam
+$ mv config $HOME/.iam
+```
+
+因为 iamctl 是一个客户端工具，可能会在多台机器上运行。为了简化部署 iamctl 工具的复杂度，可以把 config 配置文件中跟 CA 认证相关的 CA 文件内容用 base64 加密后，放置在 config 配置文件中。
+
+具体的思路就是把 config 文件中的配置项 client-certificate、client-key、certificate-authority 分别用如下配置项替换 client-certificate-data、client-key-data、certificate-authority-data。这些配置项的值可以通过对 CA 文件使用 base64 加密获得。
+
+假如，certificate-authority 值为/etc/iam/cert/ca.pem，则 certificate-authority-data 的值为 cat "/etc/iam/cert/ca.pem" | base64 | tr -d '\r\n'，其它-data 变量的值类似。这样当再部署 iamctl 工具时，只需要拷贝iamctl 和配置文件，而不用再拷贝 CA 文件了。
+
+##### 第 3 步，测试 iamctl 是否成功安装
+
+执行 iamctl user list 可以列出预创建的 admin 用户，如下图所示：
+
+![image-20211102005041406](IAM-document.assets/image-20211102005041406.png)
+
+
+
+#### 安装和配置 iam-authz-server
+
+接下来，需要安装另外一个核心组件：iam-authz-server，可以通过以下 3 步来安装。
+
+##### 第 1 步，创建 iam-authz-server 证书和私钥
+
+1. 创建证书签名请求：
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ tee iam-authz-server-csr.json <<EOF
+{
+   "CN":"iam-authz-server",
+   "key":{
+      "algo":"rsa",
+      "size":2048
+   },
+   "names":[
+      {
+         "C":"CN",
+         "ST":"BeiJing",
+         "L":"BeiJing",
+         "O":"marmotedu",
+         "OU":"iam-authz-server"
+      }
+   ],
+   "hosts":[
+      "127.0.0.1",
+      "localhost",
+      "iam.authz.marmotedu.com"
+   ]
+}
+EOF
+```
+
+代码中的 hosts 字段指定授权使用该证书的 IP 和域名列表，上面的 hosts 列出了 iam-authz-server 服务的 IP 和域名。
+
+2. 生成证书和私钥：
+
+```bash
+$ cfssl gencert -ca=${IAM_CONFIG_DIR}/cert/ca.pem \
+-ca-key=${IAM_CONFIG_DIR}/cert/ca-key.pem \
+-config=${IAM_CONFIG_DIR}/cert/ca-config.json \
+-profile=iam iam-authz-server-csr.json | cfssljson -bare iam-authz-server
+$ sudo mv iam-authz-server*pem ${IAM_CONFIG_DIR}/cert # 将生成的证书和私钥文件拷贝到配置文件目录
+```
+
+##### 第 2 步，安装并运行 iam-authz-server
+
+安装 iam-authz-server 步骤和安装 iam-apiserver 步骤基本一样，也需要 4 步。
+
+1. 安装 iam-authz-server 可执行程序：
+
+```bash
+进行到PDF底21页！
+```
 
 
 
