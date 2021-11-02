@@ -721,10 +721,6 @@ $ ./scripts/install/install.sh iam::install::install_cfssl
 # ps: 执行这个命令时候，需要的安装时间会比较长，30分钟左右，耐心，出错之后，可以选择重新安装，总会安装成功。
 ```
 
-
-
-# 11.2号继续完成后续内容
-
 2. 创建配置文件。
 
 CA 配置文件是用来配置根证书的使用场景 (profile) 和具体参数 (usage、过期时间、服务端认证、客户端认证、加密等)，可以在签名其它证书时用来指定特定场景：
@@ -803,7 +799,7 @@ EOF
 - 不同证书 csr 文件的 CN、C、ST、L、O、OU 组合必须不同，否则可能出现 PEER'S CERTIFICATE HAS AN INVALID SIGNATURE 错误。
 - 后续创建证书的 csr 文件时，CN、OU 都不相同（C、ST、L、O 相同），以达到区分的目的。
 
-4. 创建 CA 证书和私钥
+4. 创建 CA 证书和私钥。
 
 首先，通过 cfssl gencert 命令来创建：
 
@@ -844,7 +840,7 @@ EOF
 
 ##### 第 1 步，创建 iam-apiserver 证书和私钥
 
-其它服务为了安全都是通过 HTTPS 协议访问 iam-apiserver，所以要先创建 iamapiserver 证书和私钥。
+其它服务为了安全都是通过 HTTPS 协议访问 iam-apiserver，所以要先创建 iam-apiserver 证书和私钥。
 
 1. 创建证书签名请求：
 
@@ -898,6 +894,7 @@ iam-apiserver 作为 iam 系统的核心组件，需要第一个安装。
 $ cd $IAM_ROOT
 $ source scripts/install/environment.sh
 $ make build BINS=iam-apiserver
+# ps: 如果报错，安装 gin-jwt，go get github.com/appleboy/gin-jwt/v2
 $ sudo cp _output/platforms/linux/amd64/iam-apiserver ${IAM_INSTALL_DIR}/bin
 ```
 
@@ -931,8 +928,8 @@ $ systemctl status iam-apiserver # 查看 iam-apiserver 运行状态，如果输
 首先，需要获取访问 iam-apiserver 的 Token，请求如下 API 访问：
 
 ```bash
-$ curl -s -XPOST -H'Content-Type: application/json' -d'{"username":"admin","password":"Admin@2021"}'
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0
+$ curl -s -XPOST -H'Content-Type: application/json' -d'{"username":"admin","password":"Admin@2021"}'  http://127.0.0.1:8080/login | jq -r .token
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s
 ```
 
 代码中下面的 HTTP 请求通过-H'Authorization: Bearer <Token>' 指定认证头信息，将上面请求的 Token 替换 <Token> 。
@@ -943,17 +940,24 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJ
 
 ```bash
 # 创建用户
-$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"password":"User@2021","metadata":{"name":"colin"},"nickname":"colin","email":"colin@foxmail.com","phone":"1812884xxxx"}' http://127.0.0.1:8080/v1/users
+# ps: 自己尝试创建用户
+curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"password":"User@2021","metadata":{"name":"rmliu"},"nickname":"rmliu","email":"rmliu@foxmail.com","phone":"1832884xxxx"}' http://127.0.0.1:8080/v1/users
+
 # 列出用户
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/users?offset=0&limit=10
+
 # 获取 colin 用户的详细信息
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/users/colin
+
 # 修改 colin 用户
-$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"nickname":"colin","email":"colin_modified@foxmail.com","phone":"1812884xxxx"}' http://127.0.0.1:8080/v1/users/colin
+
 # 删除 colin 用户
-$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/users/colin
+
 # 批量删除用户
-$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/users?name=colin&name=mark&name=john
 ```
 
 ###### 密钥 CURD
@@ -962,15 +966,19 @@ $ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
 
 ```bash
 # 创建 secret0 密钥
-$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"metadata":{"name":"secret0"},"expires":0,"description":"admin secret"}' http://127.0.0.1:8080/v1/secrets
+
 # 列出所有密钥
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/secrets
+
 # 获取 secret0 密钥的详细信息
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/secrets/secret0
+
 # 修改 secret0 密钥
-$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"metadata":{"name":"secret0"},"expires":0,"description":"admin secret(modified)"}' http://127.0.0.1:8080/v1/secrets/secret0
+
 # 删除 secret0 密钥
-$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/secrets/secret0
 ```
 
 这里要注意，因为密钥属于重要资源，被删除会导致所有的访问请求失败，所以密钥不支持批量删除。
@@ -981,15 +989,19 @@ $ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
 
 ```bash
 # 创建策略
-$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s'-d'{"metadata":{"name":"policy0"},"policy":{"description":"One policy to rule them all.","subjects":["users:<peter|ken>","users:maria","groups:admins"],"actions":["delete","<create|update>"],"effect":"allow","resources":["resources:articles:<.*>","resources:printer"],"conditions":{"remoteIP":{"type":"CIDRCondition","options":{"cidr":"192.168.0.1/16"}}}}}' http://127.0.0.1:8080/v1/policies
+
 # 列出所有策略
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/policies
+
 # 获取 policy0 策略的详细信息
-$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XGET -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/policies/policy0
+
 # 修改 policy 策略
-$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XPUT -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"metadata":{"name":"policy0"},"policy":{"description":"One policy to rule them all(modified).","subjects":["users:<peter|ken>","users:maria","groups:admins"],"actions":["delete","<create|update>"],"effect":"allow","resources":["resources:articles:<.*>","resources:printer"],"conditions":{"remoteIP":{"type":"CIDRCondition","options":{"cidr":"192.168.0.1/16"}}}}}' http://127.0.0.1:8080/v1/policies/policy0
+
 # 删除 policy0 策略
-$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MTc5MjI4OTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MTc4MzY0OTQsInN1YiI6ImFkbWluIn0.9qztVJseQ9XwqOFVUHNOtG96-KUovndz0SSr_QBsxAA'
+$ curl -s -XDELETE -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' http://127.0.0.1:8080/v1/policies/policy0
 ```
 
 #### 安装 iamctl
@@ -1058,9 +1070,14 @@ $ cp _output/platforms/linux/amd64/iamctl $HOME/bin
 2. 生成并安装 iamctl 的配置文件（config）：
 
 ```bash
-$ ./scripts/genconfig.sh scripts/install/environment.sh configs/config > config
+$ ./scripts/genconfig.sh scripts/install/environment.sh configs/iamctl.yaml > config  # 这是一个 bug
+ # 下面的方式亲测可用
+./scripts/genconfig.sh scripts/install/environment.sh configs/iamctl.yaml > iamctl.yaml
+
 $ mkdir -p $HOME/.iam
-$ mv config $HOME/.iam
+$ mv config $HOME/.iam  # 这是一个 bug
+ # 下面的方式亲测可用
+mv iamctl.yaml $HOME/.iam
 ```
 
 因为 iamctl 是一个客户端工具，可能会在多台机器上运行。为了简化部署 iamctl 工具的复杂度，可以把 config 配置文件中跟 CA 认证相关的 CA 文件内容用 base64 加密后，放置在 config 配置文件中。
@@ -1132,8 +1149,223 @@ $ sudo mv iam-authz-server*pem ${IAM_CONFIG_DIR}/cert # 将生成的证书和私
 1. 安装 iam-authz-server 可执行程序：
 
 ```bash
-进行到PDF底21页！
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ make build BINS=iam-authz-server
+$ sudo cp _output/platforms/linux/amd64/iam-authz-server ${IAM_INSTALL_DIR}/bin
 ```
+
+2. 生成并安装 iam-authz-server 的配置文件（iam-authz-server.yaml）：
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh configs/iam-authz-server.yaml > iam-authz-server.yaml
+$ sudo mv iam-authz-server.yaml ${IAM_CONFIG_DIR}
+```
+
+3. 创建并安装 iam-authz-server systemd unit 文件：
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh init/iam-authz-server.service > iam-authz-server.service
+$ sudo mv iam-authz-server.service /etc/systemd/system/
+```
+
+4. 启动 iam-authz-server 服务：
+
+```bash
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable iam-authz-server
+$ sudo systemctl restart iam-authz-server
+$ systemctl status iam-authz-server # 查看 iam-authz-server 运行状态，如果输出中包含 active (running)字样说明 iam-authz-server 成功启动。
+```
+
+##### 第 3 步，测试 iam-authz-server 是否成功安装
+
+1. 创建授权策略。
+
+```bash
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d '{"metadata":{"name":"authztest"},"policy":{"description":"One policy to rule them all.","subjects":["users:<peter|ken>","users:maria","groups:admins"],"actions":["delete","<create|update>"],"effect":"allow","resources":["resources:articles:<.*>","resources:printer"],"conditions":{"remoteIP":{"type":"CIDRCondition","options":{"cidr":"192.168.0.1/16"}}}}}' http://127.0.0.1:8080/v1/policies
+```
+
+2. 创建密钥，并从代码的输出中提取 secretID 和 secretKey。
+
+```bash
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2MzU5NTM1ODcsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2MzU4NjcxODcsInN1YiI6ImFkbWluIn0.b7SyEqpCLuR_LnyJpA3IjFkUiQ-LPHBq3QXMjEqQZ4s' -d'{"metadata":{"name":"authztest"},"expires":0,"description":"admin secret"}' http://127.0.0.1:8080/v1/secrets
+
+# 输出
+{"metadata":{"id":23,"instanceID":"secret-yj8m30","name":"authztest","createdAt":"2021-11-03T00:55:44.444+08:00","updatedAt":"2021-11-03T00:55:44.444+08:00"},"username":"admin","secretID":"SuXnTvmGOWu5f95BfonhvYi8uxLBH2y6BOlc","secretKey":"6dF1ENyDWBDGlmR6ipUbUcpkdjgqF5Gh","expires":0,"description":"admin secret"}
+```
+
+3. 生成访问 iam-authz-server 的 Token。
+
+amctl 提供了 jwt sigin 命令，可以根据 secretID 和 secretKey 签发 Token，方便使用。
+
+```bash
+$ iamctl jwt sign SuXnTvmGOWu5f95BfonhvYi8uxLBH2y6BOlc 6dF1ENyDWBDGlmR6ipUbUcpkdjgqF5Gh # iamctl jwt sign $secretID $secretKey
+
+# 输出
+eyJhbGciOiJIUzI1NiIsImtpZCI6IlN1WG5Udm1HT1d1NWY5NUJmb25odllpOHV4TEJIMnk2Qk9sYyIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXV0aHoubWFybW90ZWR1LmNvbSIsImV4cCI6MTYzNTg3OTQ3MywiaWF0IjoxNjM1ODcyMjczLCJpc3MiOiJpYW1jdGwiLCJuYmYiOjE2MzU4NzIyNzN9.MXDw-JCkrB4_cT2cBw7il0ss5yTaW3xa3qn_RyFU7P4
+```
+
+如果开发过程中有些重复性的操作，为了方便使用，也可以将这些操作以 iamctl 子命令的方式集成到 iamctl 命令行中。
+
+4. 测试资源授权是否通过。
+
+可以通过请求 /v1/authz 来完成资源授权：
+
+```bash
+$ curl -s -XPOST -H'Content-Type: application/json' -H'Authorization: Bearer eyJhbGciOiJIUzI1NiIsImtpZCI6IlN1WG5Udm1HT1d1NWY5NUJmb25odllpOHV4TEJIMnk2Qk9sYyIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXV0aHoubWFybW90ZWR1LmNvbSIsImV4cCI6MTYzNTg3OTQ3MywiaWF0IjoxNjM1ODcyMjczLCJpc3MiOiJpYW1jdGwiLCJuYmYiOjE2MzU4NzIyNzN9.MXDw-JCkrB4_cT2cBw7il0ss5yTaW3xa3qn_RyFU7P4' -d'{"subject":"users:maria","action":"delete","resource":"resources:articles:ladon-introduction","context":{"remoteIP":"192.168.0.5"}}' http://127.0.0.1:9090/v1/authz
+
+# 输出
+{"allowed":true}
+```
+
+如果授权通过会返回：{"allowed":true} 。
+
+
+
+#### 安装和配置 iam-pump
+
+安装 iam-pump 步骤和安装 iam-apiserver、iam-authz-server 步骤基本一样，具体步骤如下。
+
+第 1 步，安装 iam-pump 可执行程序。
+
+```bash
+$ cd $IAM_ROOT
+$ source scripts/install/environment.sh
+$ make build BINS=iam-pump
+$ sudo cp _output/platforms/linux/amd64/iam-pump ${IAM_INSTALL_DIR}/bin
+```
+
+第 2 步，生成并安装 iam-pump 的配置文件（iam-pump.yaml）
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh configs/iam-pump.yaml > iam-pump.yaml
+$ sudo mv iam-pump.yaml ${IAM_CONFIG_DIR}
+```
+
+第 3 步，创建并安装 iam-pump systemd unit 文件。
+
+```bash
+$ ./scripts/genconfig.sh scripts/install/environment.sh init/iam-pump.service > iam-pump.service
+$ sudo mv iam-pump.service /etc/systemd/system/
+```
+
+第 4 步，启动 iam-pump 服务。
+
+```bash
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable iam-pump
+$ sudo systemctl restart iam-pump
+$ systemctl status iam-pump # 查看 iam-pump 运行状态，如果输出中包含 active (running)字样说明 iam-pump 成功启动。
+```
+
+第 5 步，测试 iam-pump 是否成功安装。
+
+```bash
+$ curl http://127.0.0.1:7070/healthz
+
+# 输出
+{"status": "ok"}
+```
+
+经过上面这 5 个步骤，如果返回 {"status": "ok"} 就说明 iam-pump 服务健康。
+
+
+
+#### 安装 man 文件
+
+IAM 系统通过组合调用包：github.com/cpuguy83/go-md2man/v2/md2man 和github.com/spf13/cobra 的相关函数生成了各个组件的 man1 文件，主要分 3 步实现。
+
+第 1 步，生成各个组件的 man1 文件。
+
+```bash
+$ cd $IAM_ROOT
+$ ./scripts/update-generated-docs.sh
+```
+
+第 2 步，安装生成的 man1 文件。
+
+```bash
+$ sudo cp docs/man/man1/* /usr/share/man/man1/
+```
+
+第 3 步，检查是否成功安装 man1 文件。
+
+```bash
+$ man iam-apiserver
+```
+
+执行 man iam-apiserver 命令后，会弹出 man 文档界面，如下图所示：
+
+![image-20211103011401365](IAM-document.assets/image-20211103011401365.png)
+
+至此，IAM 系统所有组件都已经安装成功了，可以通过 iamctl version 查看客户端和服务端版本，代码如下：
+
+```bash
+$ iamctl version -o yaml
+
+# 输出
+clientVersion:
+  buildDate: "2021-11-02T16:16:11Z"
+  compiler: gc
+  gitCommit: 5d2922bdca8c65725f4b363e3017595a860602f4
+  gitTreeState: dirty
+  gitVersion: 5d2922b
+  goVersion: go1.16.2
+  platform: linux/amd64
+serverVersion:
+  buildDate: "2021-11-02T15:22:23Z"
+  compiler: gc
+  gitCommit: 5d2922bdca8c65725f4b363e3017595a860602f4
+  gitTreeState: dirty
+  gitVersion: 5d2922b
+  goVersion: go1.16.2
+  platform: linux/amd64
+```
+
+
+
+### 总结
+
+这一讲，一步一步安装了 IAM 应用，完成安装的同时，也希望能加深对 IAM 应用的理解，并为后面的实战准备好环境。为了更清晰地展示安装流程，把整个安装步骤梳理成了一张脑图。
+
+![image-20211103011821246](IAM-document.assets/image-20211103011821246.png)
+
+所有组件设置的密码都是 iam59!z$，一定要记住啦。
+
+
+
+### 课后练习
+
+试着调用 iam-apiserver 提供的 API 接口创建一个用户：xuezhang，并在该用户下创建 policy 和 secret 资源。最后调用 iam-authz-server 提供的/v1/authz 接口进行资源鉴权。
+
+
+
+### 一键安装
+
+可以直接执行如下脚本，来完成 IAM 系统的安装：
+
+```bash
+$ export LINUX_PASSWORD='iam59!z$' # 重要：这里要 export going 用户的密码
+# export LINUX_PASSWORD='going'
+
+$ version=v1.0.0 && curl https://marmotedu-1254073058.cos.ap-beijing.myqcloud.
+$ cd /tmp/iam/ && ./scripts/install/install.sh iam::install::install
+```
+
+
+
+## 规范设计
+
+
+
+
+
+
+
+
+
+
 
 
 
