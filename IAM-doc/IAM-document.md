@@ -4302,13 +4302,537 @@ Go 项目包含三大内容，即 Go 应用、项目管理、项目文档，因�
 
 ## 设计模式之GoF
 
+Go 项目开发中常用的设计模式。 
+
+在软件开发中，经常会遇到各种各样的编码场景，这些场景往往重复发生，因此具有典型性。针对这些典型场景，可以自己编码解决，也可以采取更为省时省力的方式：直接采用设计模式。 
+
+设计模式是啥呢？简单来说，就是将软件开发中需要重复性解决的编码场景，按最佳实践的方式抽象成一个模型，模型描述的解决方法就是设计模式。使用设计模式，可以使代码更易于理解，保证代码的重用性和可靠性。 
+
+在软件领域，GoF（四人帮，全拼 Gang of Four）首次系统化提出了 3 大类、共 25 种可复用的经典设计方案，来解决常见的软件设计问题，为可复用软件设计奠定了一定的理论基础。 
+
+从总体上说，这些设计模式可以分为创建型模式、结构型模式、行为型模式 3 大类，用来完成不同的场景。
+
+这一讲，会介绍几个在 Go 项目开发中比较常用的设计模式，用更加简单快捷的方法应对不同的编码场景。其中，简单工厂模式、抽象工厂模式和工厂 方法模式都属于工厂模式，会把它们放在一起讲解。
+
+![image-20211111220908247](IAM-document.assets/image-20211111220908247.png)
+
+### 创建型模式 
+
+首先来看创建型模式（Creational Patterns），它提供了一种在创建对象的同时隐藏创建逻辑的方式，而不是使用 new 运算符直接实例化对象。 
+
+这种类型的设计模式里，单例模式和工厂模式（具体包括简单工厂模式、抽象工厂模式和 工厂方法模式三种）在 Go 项目开发中比较常用。先来看单例模式。 
+
+#### 单例模式
+
+单例模式（Singleton Pattern），是最简单的一个模式。在 Go 中，单例模式指的是全局只有一个实例，并且它负责创建自己的对象。单例模式不仅有利于减少内存开支，还有减少系统性能开销、防止多个实例产生冲突等优点。 
+
+因为单例模式保证了实例的全局唯一性，而且只被初始化一次，所以比较适合全局共享一个实例，且只需要被初始化一次的场景，例如数据库实例、全局配置、全局任务池等。
+
+单例模式又分为饿汉方式和懒汉方式。
+
+- 饿汉方式指全局的单例实例在包被加载时创建，
+- 懒汉方式指全局的单例实例在第一次被使用时创建。
+
+可以看到，这种命名方式非常形象地体现了它们不同的特点。
+
+##### 饿汉方式
+
+ 接下来，就来分别介绍下这两种方式。先来看饿汉方式。 
+
+下面是一个饿汉方式的单例模式代码：
+
+```go
+package hungry_singleton
+
+type singleton struct {
+}
+
+var ins *singleton = &singleton{}
+
+func GetInsOr() *singleton {
+	return ins
+}
+```
+
+需要注意，因为实例是在包被导入时初始化的，所以如果初始化耗时，会导致程序加载时间比较长。 
+
+##### 懒汉方式
+
+懒汉方式是开源项目中使用最多的，但它的缺点是非并发安全，在实际使用时需要加锁。 
+
+以下是懒汉方式不加锁的一个实现：
+
+```go
+package hungry_singleton_unlock
+
+type singleton struct {
+}
+
+var ins *singleton
+
+func GetInsOr() *singleton {
+	if ins == nil {
+		ins = &singleton{}
+	}
+	return ins
+}
+```
+
+可以看到，在创建 ins 时，如果 ins==nil，就会再创建一个 ins 实例，这时候单例就会有多个实例。 
+
+为了解决懒汉方式非并发安全的问题，需要对实例进行加锁，下面是带检查锁的一个实现：
+
+```go
+package hungry_singleton_lock
+
+import "sync"
+
+type singleton struct {
+}
+
+var ins *singleton
+var mu sync.Mutex
+
+func GetIns() *singleton {
+   if ins == nil {
+      mu.Lock()
+      if ins == nil {
+         ins = &singleton{}
+      }
+      mu.Unlock()
+   }
+   return ins
+}
+```
+
+上述代码只有在创建时才会加锁，既提高了代码效率，又保证了并发安全。 
+
+##### once.Do 方式
+
+除了饿汉方式和懒汉方式，在 Go 开发中，还有一种更优雅的实现方式，建议采用这种方式，代码如下：
+
+```go
+package onceDo
+
+import (
+   "sync"
+)
+
+type singleton struct {
+}
+
+var ins *singleton
+var once sync.Once
+
+func GetInsOr() *singleton {
+   once.Do(func() {
+      ins = &singleton{}
+   })
+   return ins
+}
+```
+
+使用once.Do可以确保 ins 实例全局只被创建一次，once.Do 函数还可以确保当同时有多个创建动作时，只有一个创建动作在被执行。 
+
+另外，IAM 应用中大量使用了单例模式，如果想了解更多单例模式的使用方式，可以直接查看 IAM 项目代码。IAM 中单例模式有 GetStoreInsOr、GetEtcdFactoryOr、 GetMySQLFactoryOr、GetCacheInsOr等。
+
+#### 工厂模式 
+
+工厂模式（Factory Pattern）是面向对象编程中的常用模式。在 Go 项目开发中，可以通过使用多种不同的工厂模式，来使代码更简洁明了。
+
+Go 中的结构体，可以理解为面向对象编程中的类，例如 Person 结构体（类）实现了 Greet 方法。
+
+```go
+package FactoryPattern
+
+import "fmt"
+
+type Person struct {
+	Name string
+	Age  int
+}
+
+func (p Person) Greet() {
+	fmt.Printf("Hi! My name is %s", p.Name)
+}
+```
+
+有了 Person“类”，就可以创建 Person 实例。可以通过简单工厂模式、抽象工厂模 式、工厂方法模式这三种方式，来创建一个 Person 实例。 
+
+##### 简单工厂模式
+
+这三种工厂模式中，简单工厂模式是最常用、最简单的。它就是一个接受一些参数，然后返回 Person 实例的函数：
+
+```go
+package SimpleFactoryPattern
+
+import "fmt"
+
+type Person struct {
+   Name string
+   Age  int
+}
+
+func (p Person) Greet() {
+   fmt.Printf("Hi! My name is %s", p.Name)
+}
+func NewPerson(name string, age int) *Person {
+   return &Person{
+      Name: name,
+      Age:  age,
+   }
+}
+```
+
+和p：=＆Person {}这种创建实例的方式相比，简单工厂模式可以确保创建的实例具有需要的参数，进而保证实例的方法可以按预期执行。例如，通过NewPerson创建 Person 实例时，可以确保实例的 name 和 age 属性被设置。 
+
+##### 抽象工厂模式
+
+再来看抽象工厂模式，它和简单工厂模式的唯一区别，就是它返回的是接口而不是结构体。 
+
+通过返回接口，可以在不公开内部实现的情况下，让调用者使用提供的各种功能，例如：
+
+```go
+package AbstractFactoryPattern
+
+import "fmt"
+
+type Person interface {
+   Greet()
+}
+type person struct {
+   name string
+   age  int
+}
+
+func (p person) Greet() {
+   fmt.Printf("Hi! My name is %s", p.name)
+}
+
+// NewPerson Here, NewPerson returns an interface, and not the person struct itself
+func NewPerson(name string, age int) Person {
+   return person{
+      name: name,
+      age:  age,
+   }
+}
+```
+
+上面这个代码，定义了一个不可导出的结构体person，在通过 NewPerson 创建实例的时候返回的是接口，而不是结构体。 
+
+通过返回接口，还可以实现多个工厂函数，来返回不同的接口实现，例如：
+
+```go
+package HTTPClientFactoryPattern
+
+import (
+   "net/http"
+   "net/http/httptest"
+)
+
+// We define a Doer interface, that has the method signature
+// of the `http.Client` structs `Do` method
+type Doer interface {
+   Do(req *http.Request) (*http.Response, error)
+}
+
+// This gives us a regular HTTP client from the `net/http` package
+func NewHTTPClient() Doer {
+   return &http.Client{}
+}
+
+type mockHTTPClient struct{}
+
+func (*mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+   // The `NewRecorder` method of the httptest package gives us
+   // a new mock request generator
+   res := httptest.NewRecorder()
+   // calling the `Result` method gives us
+   // the default empty *http.Response object
+   return res.Result(), nil
+}
+
+// This gives us a mock HTTP client, which returns
+// an empty response for any request sent to it
+func NewMockHTTPClient() Doer {
+   return &mockHTTPClient{}
+}
+```
+
+NewHTTPClient和NewMockHTTPClient都返回了同一个接口类型 Doer，这使得二者可以互换使用。
+
+当想测试一段调用了 Doer 接口 Do 方法的代码时，这一点特别有用。可以使用一个 Mock 的 HTTP 客户端，从而避免了调用真实外部接口可能带来的失败。
+
+来看个例子，假设想测试下面这段代码：
+
+```go
+package HTTPClientFactoryPattern
+
+import "net/http"
+
+// QueryUser testing
+func QueryUser(doer Doer) error {
+   req, err := http.NewRequest("Get", "https://iam.api.marmotedu.com:8080/v1/secrets", nil)
+   if err != nil {
+      return err
+   }
+   _, err = doer.Do(req)
+   if err != nil {
+      return err
+   }
+   return nil
+}
+```
+
+其测试用例为：
+
+```go
+func TestQueryUser(t *testing.T) {
+   doer := NewMockHTTPClient()
+   if err := QueryUser(doer); err != nil {
+      t.Errorf("QueryUser failed, err: %v", err)
+   }
+}
+```
+
+另外，在使用简单工厂模式和抽象工厂模式返回实例对象时，都可以返回指针。例如，简单工厂模式可以这样返回实例对象：
+
+```go
+return &Person{
+  Name: name,
+  Age:  age,
+}
+```
+
+抽象工厂模式可以这样返回实例对象：
+
+```go
+return &person{
+   name: name,
+   age:  age,
+}
+```
+
+在实际开发中，建议返回非指针的实例，因为主要是想通过创建实例，调用其提供的方法，而不是对实例做更改。如果需要对实例做更改，可以实现 `SetXXX` 的方法。通过返回非指针的实例，可以确保实例的属性，避免属性被意外 / 任意修改。 
+
+在简单工厂模式中，依赖于唯一的工厂对象，如果需要实例化一个产品，就要向工厂中传入一个参数，获取对应的对象；如果要增加一种产品，就要在工厂中修改创建产品的函数。这会导致耦合性过高，这时就可以使用工厂方法模式。 
+
+##### 工厂方法模式
+
+在工厂方法模式中，依赖工厂接口，可以通过实现工厂接口来创建多种工厂，将对象创建从由一个对象负责所有具体类的实例化，变成由一群子类来负责对具体类的实例化， 从而将过程解耦。 
+
+下面是工厂方法模式的一个代码实现：
+
+```go
+package FactoryMethodFactoryPattern
+
+type Person struct {
+   name string
+   age  int
+}
+
+func NewPersonFactory(age int)func(name string) Person {
+   return func(name string) Person {
+      return Person{
+         name: name,
+         age:  age,
+      }
+   }
+}
+```
+
+然后，可以使用此功能来创建具有默认年龄的工厂：
+
+```go
+func main() {
+   newBaby := NewPersonFactory(1)
+   baby := newBaby("john")
+   fmt.Println("baby is", baby.name, "age is", baby.age)
+
+   newTeenager := NewPersonFactory(16)
+   teen := newTeenager("jill")
+   fmt.Println("teenager is", teen.name, "age is", teen.age)
+}
+```
 
 
 
+### 结构型模式 
+
+已经介绍了单例模式、工厂模式这两种创建型模式，接下来来看结构型模式 （Structural Patterns），它的特点是关注类和对象的组合。这一类型里，详细讲讲策略模式和模板模式。
+
+#### 策略模式
+
+策略模式（Strategy Pattern）定义一组算法，将每个算法都封装起来，并且使它们之间可以互换。 
+
+在什么时候，需要用到策略模式呢？ 
+
+在项目开发中，经常要根据不同的场景，采取不同的措施，也就是不同的策略。比如，假设需要对 a、b 这两个整数进行计算，根据条件的不同，需要执行不同的计算方式。可以把所有的操作都封装在同一个函数中，然后通过 if ... else ... 的形式来调用不同的计算方式，这种方式称之为硬编码。 
+
+在实际应用中，随着功能和体验的不断增长，需要经常添加 / 修改策略，这样就需要不断修改已有代码，不仅会让这个函数越来越难维护，还可能因为修改带来一些 bug。所以为了解耦，需要使用策略模式，定义一些独立的类来封装不同的算法，每一个类封装一个具体的算法（即策略）。 
+
+下面是一个实现策略模式的代码：
+
+```go
+package StrategyPattern
+
+// IStrategy 策略模式
+// 定义一个策略类
+type IStrategy interface {
+   do(int, int) int
+}
+
+// 策略实现：加
+type add struct{}
+
+func (*add) do(a, b int) int {
+   return a + b
+}
+
+// 策略实现：减
+type reduce struct{}
+
+func (*reduce) do(a, b int) int {
+   return a - b
+}
+
+// Operator 具体策略的执行者
+type Operator struct {
+   strategy IStrategy
+}
+
+// 设置策略
+func (operator *Operator) setStrategy(strategy IStrategy) {
+   operator.strategy = strategy
+}
+
+// 调用策略中的方法
+func (operator *Operator) calculate(a, b int) int {
+   return operator.strategy.do(a, b)
+}
+```
+
+在上述代码中，定义了策略接口 IStrategy，还定义了 add 和 reduce 两种策略。最后定义了一个策略执行者，可以设置不同的策略，并执行，例如：
+
+```go
+package StrategyPattern
+
+import (
+   "fmt"
+   "testing"
+)
+
+// TestStrategy 执行测试
+func TestStrategy(t *testing.T) {
+   operator := Operator{}
+   operator.setStrategy(&add{})
+   result := operator.calculate(1, 2)
+   fmt.Println("add:", result)
+
+   operator.setStrategy(&reduce{})
+   result = operator.calculate(2, 1)
+   fmt.Println("reduce:", result)
+}
+```
+
+可以看到，可以随意更换策略，而不影响 Operator 的所有实现。
+
+#### 模版模式 
+
+模版模式 (Template Pattern) 定义一个操作中算法的骨架，而将一些步骤延迟到子类中。 这种方法让子类在不改变一个算法结构的情况下，就能重新定义该算法的某些特定步骤。 
+
+简单来说，模板模式就是将一个类中能够公共使用的方法放置在抽象类中实现，将不能公共使用的方法作为抽象方法，强制子类去实现，这样就做到了将一个类作为一个模板，让开发者去填充需要填充的地方。 
+
+以下是模板模式的一个实现：
+
+```go
+package TemplatePattern
+
+import "fmt"
+
+type Cooker interface {
+   fire()
+   cooke()
+   outfire()
+}
+
+// CookMenu 类似于一个抽象类
+type CookMenu struct {
+}
+
+func (CookMenu) fire() {
+   fmt.Println("开火")
+}
+
+// 做菜，交给具体的子类实现
+func (CookMenu) cooke() {
+}
+
+func (CookMenu) outfire() {
+   fmt.Println("关火")
+}
+
+// 封装具体步骤
+func doCook(cook Cooker) {
+   cook.fire()
+   cook.cooke()
+   cook.outfire()
+}
+
+type XiHongShi struct {
+   CookMenu
+}
+
+func (*XiHongShi) cooke() {
+   fmt.Println("做西红柿")
+}
+
+type ChaoJiDan struct {
+   CookMenu
+}
+
+func (ChaoJiDan) cooke() {
+   fmt.Println("做炒鸡蛋")
+}
+```
+
+这里来看下测试用例：
+
+```go
+package TemplatePattern
+
+import (
+   "fmt"
+   "testing"
+)
+
+func TestTemplate(t *testing.T) {
+   // 做西红柿
+   xihongshi := &XiHongShi{}
+   doCook(xihongshi)
+   fmt.Println("\n=====> 做另外一道菜")
+
+   // 做炒鸡蛋
+   chaojidan := &ChaoJiDan{}
+   doCook(chaojidan)
+}
+```
 
 
 
+### 行为型模式
 
+然后，来看最后一个类别，行为型模式（Behavioral Patterns），它的特点是关注对象之间的通信。这一类别的设计模式中，会讲到代理模式和选项模式。 
+
+#### 代理模式 
+
+代理模式 (Proxy Pattern)，可以为另一个对象提供一个替身或者占位符，以控制对这个对 象的访问。
+
+以下代码是一个代理模式的实现：
+
+
+
+====> 后续的内容继续完成，结束之后，完成Go编码规范
 
 
 
