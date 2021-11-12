@@ -1,4 +1,4 @@
-## IAM系统概述
+##  IAM系统概述
 
 ### 项⽬背景：为什么选择 IAM 系统作为实战项⽬？
 
@@ -4822,17 +4822,261 @@ func TestTemplate(t *testing.T) {
 
 ### 行为型模式
 
-然后，来看最后一个类别，行为型模式（Behavioral Patterns），它的特点是关注对象之间的通信。这一类别的设计模式中，会讲到代理模式和选项模式。 
+行为型模式（Behavioral Patterns），它的特点是关注对象之间的通信。这一类别的设计模式中，会讲到代理模式和选项模式。 
 
 #### 代理模式 
 
-代理模式 (Proxy Pattern)，可以为另一个对象提供一个替身或者占位符，以控制对这个对 象的访问。
+代理模式 (Proxy Pattern)，可以为另一个对象提供一个替身或者占位符，以控制对这个对象的访问。
 
 以下代码是一个代理模式的实现：
 
+```go
+package main
+
+import "fmt"
+
+type Seller interface {
+   sell(name string)
+}
+
+// Station 火车站
+type Station struct {
+   stock int //库存
+}
+
+func (station *Station) sell(name string) {
+   if station.stock > 0 {
+      station.stock--
+      fmt.Printf("代理点中：%s买了一张票,剩余：%d \n", name, station.stock)
+   } else {
+      fmt.Println("票已售空")
+   }
+}
+
+// StationProxy 火车代理点
+type StationProxy struct {
+   station *Station // 持有一个火车站对象
+}
+
+func (proxy *StationProxy) sell(name string) {
+   if proxy.station.stock > 0 {
+      proxy.station.stock--
+      fmt.Printf("代理点中：%s买了一张票,剩余：%d \n", name, proxy.station.stock)
+   } else {
+      fmt.Println("票已售空")
+   }
+}
+```
+
+上述代码中，StationProxy 代理了 Station，代理类中持有被代理类对象，并且和被代理类对象实现了同一接口。 
+
+#### 选项模式 
+
+选项模式（Options Pattern）也是 Go 项目开发中经常使用到的模式，例如，grpc/grpcgo 的 NewServer 函数，uber-go/zap 包的 New 函数都用到了选项模式。
+
+使用选项模式，可以创建一个带有默认值的 struct 变量，并选择性地修改其中一些参数的值。
+
+在 Python 语言中，创建一个对象时，可以给参数设置默认值，这样在不传入任何参数时，可以返回携带默认值的对象，并在需要时修改对象的属性。这种特性可以大大简化开发者创建一个对象的成本，尤其是在对象拥有众多属性时。 
+
+而在 Go 语言中，因为不支持给参数设置默认值，为了既能够创建带默认值的实例，又能够创建自定义参数的实例，不少开发者会通过以下两种方法来实现： 
+
+第一种方法，要分别开发两个用来创建实例的函数，一个可以创建带默认值的实例， 一个可以定制化创建实例。
+
+```go
+package main
+
+import (
+   "time"
+)
+
+const (
+   defaultCaching = false
+   defaultTimeout = 10
+)
+
+type Connection struct {
+   addr    string
+   cache   bool
+   timeout time.Duration
+}
+
+// NewConnect creates a connection.
+func NewConnect(addr string) (*Connection, error) {
+   return &Connection{
+      addr:    addr,
+      cache:   defaultCaching,
+      timeout: defaultTimeout,
+   }, nil
+}
+
+// NewConnectWithOptions creates a connection with options.
+func NewConnectWithOptions(addr string, cache bool, timeout time.Duration) (*Connection, error) {
+   return &Connection{
+      addr:    addr,
+      cache:   cache,
+      timeout: timeout,
+   }, nil
+}
+```
+
+使用这种方式，创建同一个 Connection 实例，却要实现两个不同的函数，实现方式很不 优雅。 
+
+另外一种方法相对优雅些。需要创建一个带默认值的选项，并用该选项创建实例：
+
+```go
+package OneDefaultOptionsPattern
+
+import (
+   "time"
+)
+
+const (
+   defaultTimeout = 10
+   defaultCaching = false
+)
+
+type Connection struct {
+   addr    string
+   cache   bool
+   timeout time.Duration
+}
+type ConnectionOptions struct {
+   Caching bool
+   Timeout time.Duration
+}
+
+func NewDefaultOptions() *ConnectionOptions {
+   return &ConnectionOptions{
+      Caching: defaultCaching,
+      Timeout: defaultTimeout,
+   }
+}
+
+// NewConnect creates a connection with options.
+func NewConnect(addr string, opts *ConnectionOptions) (*Connection, error) {
+   return &Connection{
+      addr:    addr,
+      cache:   opts.Caching,
+      timeout: opts.Timeout,
+   }, nil
+}
+```
+
+使用这种方式，虽然只需要实现一个函数来创建实例，但是也有缺点：为了创建 Connection 实例，每次都要创建 ConnectionOptions，操作起来比较麻烦。
+
+那么有没有更优雅的解决方法呢？答案当然是有的，就是使用选项模式来创建实例。以下代码通过选项模式实现上述功能：
+
+```go
+package OptionsPattern
+
+import (
+   "time"
+)
+
+type Connection struct {
+   addr    string
+   cache   bool
+   timeout time.Duration
+}
+
+const (
+   defaultTimeout = 10
+   defaultCaching = false
+)
+
+type options struct {
+   timeout time.Duration
+   caching bool
+}
+
+// Option overrides behavior of Connect.
+type Option interface {
+   apply(*options)
+}
+type optionFunc func(*options)
+
+func (f optionFunc) apply(o *options) {
+   f(o)
+}
+func WithTimeout(t time.Duration) Option {
+   return optionFunc(func(o *options) {
+      o.timeout = t
+   })
+}
+func WithCaching(cache bool) Option {
+   return optionFunc(func(o *options) {
+      o.caching = cache
+   })
+}
+
+// NewConnect Connect creates a connection.
+func NewConnect(addr string, opts ...Option) (*Connection, error) {
+   options := options{
+      caching: defaultCaching,
+      timeout: defaultTimeout,
+   }
+   for _, o := range opts {
+      o.apply(&options)
+   }
+   return &Connection{
+      addr:    addr,
+      cache:   options.caching,
+      timeout: options.timeout,
+   }, nil
+}
+```
+
+在上面的代码中，首先定义了options结构体，它携带了 timeout、caching 两个属性。接下来，通过NewConnect创建了一个连接，NewConnect 函数中先创建了一个带有默认值的options结构体变量，并通过调用
+
+```go
+for _, o := range opts {
+   o.apply(&options)
+}
+```
+
+来修改所创建的options结构体变量。 
+
+需要修改的属性，是在NewConnect时，通过 Option 类型的选项参数传递进来的。可以通过WithXXX函数来创建 Option 类型的选项参数：WithTimeout、WithCaching。
+
+Option 类型的选项参数需要实现 apply(*options)函数，结合 WithTimeout、 WithCaching 函数的返回值和 optionFunc 的 apply 方法实现，可以知道 o.apply(&options)其实就是把 WithTimeout、WithCaching 传入的参数赋值给 options 结构体变量，以此动态地设置 options 结构体变量的属性。 
+
+这里还有一个好处：可以在 apply 函数中自定义赋值逻辑，例如o.timeout = 100 * t。通过这种方式，会有更大的灵活性来设置结构体的属性。
+
+选项模式有很多优点，例如：
+
+- 支持传递多个参数，并且在参数发生变化时保持兼容性；
+- 支持任意顺序传递参数；
+- 支持默认值；
+- 方便扩展；
+- 通过 WithXXX 的函数命名，可以使参数意义更加明确，等等。 
+
+不过，为了实现选项模式，增加了很多代码，所以在开发中，要根据实际场景选择是否使用选项模式。选项模式通常适用于以下场景：
+
+- 结构体参数很多，创建结构体时，期望创建一个携带默认值的结构体变量，并选择性修改其中一些参数的值。 
+- 结构体参数经常变动，变动时又不想修改创建实例的函数。例如：结构体新增一个 retry 参数，但是又不想在 NewConnect 入参列表中添加retry int这样的参数声明。
+
+如果结构体参数比较少，可以慎重考虑要不要采用选项模式。 
+
+### 总结 
+
+设计模式，是业界沉淀下来的针对特定场景的最佳解决方案。在软件领域，GoF 首次系统化提出了 3 大类设计模式：创建型模式、结构型模式、行为型模式。 
+
+这一讲，介绍了 Go 项目开发中 6 种常用的设计模式。每种设计模式解决某一类场景， 总结成了一张表格。
+
+![image-20211112230630944](IAM-document.assets/image-20211112230630944.png)
+
+### 课后练习
+
+- 当前开发的项目中，哪些可以用单例模式、工厂模式、选项模式来重新实现呢？如果有的话，试着重写下这部分代码。
+- 除了这 6 种设计模式之外，还用过其他的设计模式吗？
 
 
-====> 后续的内容继续完成，结束之后，完成Go编码规范
+
+## Go编码规范
+
+
+
+
 
 
 
