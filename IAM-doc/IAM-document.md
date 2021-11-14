@@ -5074,6 +5074,176 @@ Option 类型的选项参数需要实现 apply(*options)函数，结合 WithTime
 
 ## Go编码规范
 
+一份清晰、可直接套用的 Go 编码规范，编写一个高质量的 Go 应用。 
+
+这份规范，参考了 Go 官方提供的编码规范，以及 Go 社区沉淀的一些比较合理的规范，加入自己的理解总结出的，它比很多公司内部的规范更全面。
+
+这份编码规范中包含代码风格、命名规范、注释规范、类型、控制结构、函数、GOPATH 设置规范、依赖管理和最佳实践九类规范，作为写代码时候的一个参考手册。 
+
+### 代码风格 
+
+#### 代码格式
+
+代码都必须用 go fmt 进行格式化。 
+
+运算符和操作数之间要留空格。 
+
+建议一行代码不超过 120 个字符，超过部分，请采用合适的换行方式换行。但也有些例外场景，例如 import 行、工具自动生成的代码、带 tag 的 struct 字段。 
+
+文件长度不能超过 800 行。 
+
+函数长度不能超过 80 行。 
+
+import 规范 
+
+- 代码都必须用 go imports 进行格式化（建议将代码 Go 代码编辑器设置为：保存时运行 go imports）。 
+
+- 不要使用相对路径引入包，例如 import ../util/net 。 
+
+- 包名称与导入路径的最后一个目录名不匹配时，或者多个相同包名冲突时，则必须使用导入别名。
+
+  - ```go
+    // bad
+    "github.com/dgrijalva/jwt-go/v4"
+    
+    //good
+    jwt "github.com/dgrijalva/jwt-go/v4"
+    ```
+
+- 导入的包建议进行分组，匿名包的引用使用一个新的分组，并对匿名包引用进行说 明。
+
+  - ```go
+    import (
+    	// go 标准包
+    	"fmt"
+    	
+    	// 第三方包
+    	"github.com/jinzhu/gorm"
+    	"github.com/spf13/cobra"
+    	"github.com/spf13/viper"
+    	
+    	// 匿名包单独分组，并对匿名包引用进行说明
+    	// import mysql driver
+    	_ "github.com/jinzhu/gorm/dialects/mysql"
+    	
+    	// 内部包
+    	v1 "github.com/marmotedu/api/apiserver/v1"
+    	metav1 "github.com/marmotedu/apimachinery/pkg/meta/v1"
+    	"github.com/marmotedu/iam/pkg/cli/genericclioptions"
+    )
+    ```
+
+####  声明、初始化和定义
+
+当函数中需要使用到多个变量时，可以在函数开始处使用 var 声明。在函数外部声明必须使用 var ，不要采用 := ，容易踩到变量的作用域的问题。
+
+```go
+var (
+  Width int
+  Height int
+)
+```
+
+在初始化结构引用时，请使用 &T{}代替 new(T)，以使其与结构体初始化一致。
+
+```go
+// bad
+sptr := new(T)
+sptr.Name = "bar"
+
+// good
+sptr := &T{Name: "bar"}
+```
+
+struct 声明和初始化格式采用多行，定义如下。
+
+```go
+type User struct{
+  Username string
+  Email string
+}
+
+user := User{
+  Username: "colin",
+  Email: "colin404@foxmail.com",
+}
+```
+
+相似的声明放在一组，同样适用于常量、变量和类型声明。
+
+```go
+// bad
+import "a"
+import "b"
+
+// good
+import (
+  "a"
+  "b"
+)
+```
+
+尽可能指定容器容量，以便为容器预先分配内存，例如：
+
+```go
+v := make(map[int]string, 4)
+v := make([]string, 0, 4)
+```
+
+在顶层，使用标准 var 关键字。请勿指定类型，除非它与表达式的类型不同。
+
+```go
+// bad
+var _s string = F()
+func F() string { return "A" }
+
+// good
+var _s = F()
+// 由于 F 已经明确了返回一个字符串类型，因此我们没有必要显式指定_s 的类型
+// 还是那种类型
+func F() string { return "A" }
+```
+
+对于未导出的顶层常量和变量，使用 _ 作为前缀。
+
+```go
+// bad
+const (
+  defaultHost = "127.0.0.1"
+  defaultPort = 8080
+)
+
+// good
+const (
+  _defaultHost = "127.0.0.1"
+  _defaultPort = 8080
+)
+```
+
+嵌入式类型（例如 mutex）应位于结构体内的字段列表的顶部，并且必须有一个空行将嵌入式字段与常规字段分隔开。
+
+```go
+// bad
+type Client struct {
+  version int
+  http.Client
+}
+
+// good
+type Client struct {
+  http.Client
+  version int
+}
+```
+
+#### 错误处理
+
+- 有一些困了，准备睡觉，再接着干！
+
+
+
+
+
 
 
 
