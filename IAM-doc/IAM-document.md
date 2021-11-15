@@ -6083,7 +6083,715 @@ map 在并发中需要加锁。 编译过程无法检查 interface{} 的转换�
 
 ## API 风格设计之 RESTful API
 
+如何设计应用的 API 风格。 
 
+绝大部分的 Go 后端服务需要编写 API 接口，对外提供服务。所以在开发之前，需要确定一种 API 风格。
+
+API 风格也可以理解为 API 类型，目前业界常用的 API 风格有三种： REST、RPC 和 GraphQL。
+
+需要根据项目需求，并结合 API 风格的特点，确定使用哪种 API 风格，这对以后的编码实现、通信方式和通信效率都有很大的影响。 
+
+在 Go 项目开发中，用得最多的是 REST 和 RPC，在 IAM 实战项目中也使用了 REST 和 RPC 来构建示例项目。
+
+接下来会详细介绍下 REST 和 RPC 这两种风格，如果对 GraphQL 感兴趣，GraphQL 中文官网有很多文档和代码示例，可以自行学习。
+
+### RESTful API 介绍 
+
+在回答“RESTful API 是什么”之前，先来看下 REST 是什么意思：REST 代表的是表 现层状态转移（REpresentational State Transfer），由 Roy Fielding 在他的论文 《Architectural Styles and the Design of Network-based Software Architectures》里提出。
+
+REST 本身并没有创造新的技术、组件或服务，它只是一种软件架构风格，是一组架构约束条件和原则，而不是技术框架。 
+
+REST 有一系列规范，满足这些规范的 API 均可称为 RESTful API。REST 规范把所有内容都视为资源，也就是说网络上一切皆资源。REST 架构对资源的操作包括获取、创建、修改和删除，这些操作正好对应 HTTP 协议提供的 GET、POST、PUT 和 DELETE 方法。 
+
+HTTP 动词与 REST 风格 CRUD 的对应关系见下表：
+
+![image-20211115212612806](IAM-document.assets/image-20211115212612806.png)
+
+REST 风格虽然适用于很多传输协议，但在实际开发中，由于 REST 天生和 HTTP 协议相辅相成，因此 HTTP 协议已经成了实现 RESTful API 事实上的标准。所以，REST 具有以下核心特点：
+
+- 以资源 (resource) 为中心，所有的东西都抽象成资源，所有的行为都应该是在资源上的 CRUD 操作。 
+  - 资源对应着面向对象范式里的对象，面向对象范式以对象为中心。 
+  - 资源使用 URI 标识，每个资源实例都有一个唯一的 URI 标识。例如，如果有一个用户，用户名是 admin，那么它的 URI 标识就可以是 /users/admin。 
+- 资源是有状态的，使用 JSON/XML 等在 HTTP Body 里表征资源的状态。
+- 客户端通过四个 HTTP 动词，对服务器端资源进行操作，实现“表现层状态转化”。 
+- 无状态，这里的无状态是指每个 RESTful API 请求都包含了所有足够完成本次操作的信息，服务器端无须保持 session。无状态对于服务端的弹性扩容是很重要的。
+
+这里强调下 REST 和 RESTful API 的区别：REST 是一种规范，而 RESTful API 则是满足这种规范的 API 接口。
+
+### RESTful API 设计原则 
+
+RESTful API 就是满足 REST 规范的 API，由此看来，RESTful API 的核心是规范，那么具体有哪些规范呢？ 
+
+接下来，就从 URI 设计、API 版本管理等七个方面，详细介绍下 RESTful API 的设 计原则，然后再通过一个示例来快速启动一个 RESTful API 服务。
+
+#### URI 设计 
+
+资源都是使用 URI 标识的，应该按照一定的规范来设计 URI，通过规范化可以使 API 接口更加易读、易用。以下是 URI 设计时，应该遵循的一些规范：
+
+- 资源名使用名词而不是动词，并且用名词复数表示。资源分为 Collection 和 Member 两种。 
+
+  - Collection：一堆资源的集合。例如系统里有很多用户（User）, 这些用户的集合就是 Collection。Collection 的 URI 标识应该是 域名/资源名复数, 例如 https:// iam.api.marmotedu.com/users。 
+  - Member：单个特定资源。例如系统中特定名字的用户，就是 Collection 里的一个 Member。Member 的 URI 标识应该是 域名/资源名复数/资源名称, 例如 https:// iam.api.marmotedu/users/admin。 
+
+- URI 结尾不应包含/。 
+
+- URI 中不能出现下划线 _，必须用中杠线 -代替（有些人推荐用 _，有些人推荐用 -，统一使用一种格式即可，比较推荐用 -）。 
+
+- URI 路径用小写，不要用大写。
+
+- 避免层级过深的 URI。超过 2 层的资源嵌套会很乱，建议将其他资源转化为?参数，比如：
+
+  - ```http
+    /schools/tsinghua/classes/rooma/students/zhang # 不推荐
+    /students?school=qinghua&class=rooma # 推荐
+    ```
+
+  - 
+
+这里有个地方需要注意：在实际的 API 开发中，可能会发现有些操作不能很好地映射为一个 REST 资源，这时候，可以参考下面的做法。
+
+- 将一个操作变成资源的一个属性，比如想在系统中暂时禁用某个用户，可以这么设计 URI：/users/zhangsan?active=false。 
+
+- 将操作当作是一个资源的嵌套资源，比如一个 GitHub 的加星操作：
+
+  - ```http
+    PUT /gists/:id/star # github star action
+    DELETE /gists/:id/star # github unstar action
+    ```
+
+  - 如果以上都不能解决问题，有时可以打破这类规范。比如登录操作，登录不属于任何一个资源，URI 可以设计为：/login。
+
+在设计 URI 时，如果遇到一些不确定的地方，推荐参考 GitHub 标准 RESTful API。
+
+#### REST 资源操作映射为 HTTP 方法 
+
+基本上 RESTful API 都是使用 HTTP 协议原生的 GET、PUT、POST、DELETE 来标识对资源的 CRUD 操作的，形成的规范如下表所示：
+
+![image-20211115213736675](IAM-document.assets/image-20211115213736675.png)
+
+对资源的操作应该满足安全性和幂等性：
+
+- 安全性：不会改变资源状态，可以理解为只读的。 
+- 幂等性：执行 1 次和执行 N 次，对资源状态改变的效果是等价的。
+
+使用不同 HTTP 方法时，资源操作的安全性和幂等性对照见下表：
+
+![image-20211115213911384](IAM-document.assets/image-20211115213911384.png)
+
+在使用 HTTP 方法的时候，有以下两点需要注意：
+
+- GET 返回的结果，要尽量可用于 PUT、POST 操作中。例如，用 GET 方法获得了一个 user 的信息，调用者修改 user 的邮件，然后将此结果再用 PUT 方法更新。这要求 GET、PUT、POST 操作的资源属性是一致的。 
+- 如果对资源进行状态 / 属性变更，要用 PUT 方法，POST 方法仅用来创建或者批量删除这两种场景。
+
+在设计 API 时，经常会有批量删除的需求，需要在请求中携带多个需要删除的资源名，但是 HTTP 的 DELETE 方法不能携带多个资源名，这时候可以通过下面三种方式来解决：
+
+- 发起多个 DELETE 请求。 
+- 操作路径中带多个 id，id 之间用分隔符分隔, 例如：DELETE /users?ids=1,2,3 。 
+- 直接使用 POST 方式来批量删除，body 中传入需要删除的资源列表。
+
+其中，第二种是最推荐的方式，因为使用了匹配的 DELETE 动词，并且不需要发送多次 DELETE 请求。 
+
+需要注意的是，这三种方式都有各自的使用场景，可以根据需要自行选择。如果选择了某一种方式，那么整个项目都需要统一用这种方式。
+
+#### 统一的返回格式 
+
+一般来说，一个系统的 RESTful API 会向外界开放多个资源的接口，每个接口的返回格式要保持一致。
+
+另外，每个接口都会返回成功和失败两种消息，这两种消息的格式也要保持一致。不然，客户端代码要适配不同接口的返回格式，每个返回格式又要适配成功和失败 两种消息格式，会大大增加用户的学习和使用成本。 
+
+返回的格式没有强制的标准，可以根据实际的业务需要返回不同的格式。后续内容中，会推荐一种返回格式，它也是业界最常用和推荐的返回格式。
+
+#### API 版本管理 
+
+随着时间的推移、需求的变更，一个 API 往往满足不了现有的需求，这时候就需要对 API 进行修改。对 API 进行修改时，不能影响其他调用系统的正常使用，这就要求 API 变更做到向下兼容，也就是新老版本共存。 
+
+但在实际场景中，很可能会出现同一个 API 无法向下兼容的情况。这时候最好的解决办法是从一开始就引入 API 版本机制，当不能向下兼容时，就引入一个新的版本，老的版本则保留原样。这样既能保证服务的可用性和安全性，同时也能满足新需求。
+
+API 版本有不同的标识方法，在 RESTful API 开发中，通常将版本标识放在如下 3 个位置：
+
+- URL 中，比如/v1/users。 
+- HTTP Header 中，比如Accept: vnd.example-com.foo+json; version=1.0。 
+- Form 参数中，比如/users?version=v1。
+
+这门课中的版本标识是放在 URL 中的，比如/v1/users，这样做的好处是很直观， GitHub、Kubernetes、Etcd 等很多优秀的 API 均采用这种方式。 
+
+这里要注意，有些开发人员不建议将版本放在 URL 中，因为他们觉得不同的版本可以理解成同一种资源的不同表现形式，所以应该采用同一个 URI。对于这一点，没有严格的标准，根据项目实际需要选择一种方式即可。
+
+#### API 命名 
+
+API 通常的命名方式有三种，分别是驼峰命名法 (serverAddress)、蛇形命名法 (server_address) 和脊柱命名法 (server-address)。 
+
+驼峰命名法和蛇形命名法都需要切换输入法，会增加操作的复杂性，也容易出错，所以这里建议用脊柱命名法。GitHub API 用的就是脊柱命名法，例如  selected-actions。
+
+#### 统一分页 / 过滤 / 排序 / 搜索功能 
+
+REST 资源的查询接口，通常情况下都需要实现分页、过滤、排序、搜索功能，因为这些功能是每个 REST 资源都能用到的，所以可以实现为一个公共的 API 组件。
+
+下面来介绍下这些功能。
+
+- 分页：在列出一个 Collection 下所有的 Member 时，应该提供分页功能，例 如/users?offset=0&limit=20（limit，指定返回记录的数量；offset，指定返回记录的开始位置）。引入分页功能可以减少 API 响应的延时，同时可以避免返回太多条目，导致服务器 / 客户端响应特别慢，甚至导致服务器 / 客户端 crash 的情况。 
+- 过滤：如果用户不需要一个资源的全部状态属性，可以在 URI 参数里指定返回哪些属性，例如/users?fields=email,username,address。 
+- 排序：用户很多时候会根据创建时间或者其他因素，列出一个 Collection 中前 100 个 Member，这时可以在 URI 参数中指明排序参数，例如/users?sort=age,desc。
+- 搜索：当一个资源的 Member 太多时，用户可能想通过搜索，快速找到所需要的 Member，或着想搜下有没有名字为 xxx 的某类资源，这时候就需要提供搜索功能。搜索建议按模糊匹配来搜索。
+
+#### 域名 
+
+API 的域名设置主要有两种方式：
+
+- https://marmotedu.com/api ，这种方式适合 API 将来不会有进一步扩展的情况， 比如刚开始 marmotedu.com 域名下只有一套 API 系统，未来也只有这一套 API 系统。 
+- https://iam.api.marmotedu.com，如果 marmotedu.com 域名下未来会新增另一个系统 API，这时候最好的方式是每个系统的 API 拥有专有的 API 域名，比如： storage.api.marmotedu.com，network.api.marmotedu.com。腾讯云的域名就是采用这种方式。
+
+到这里，就将 REST 设计原则中的核心原则讲完了，这里有个需要注意的点：不同公司、不同团队、不同项目可能采取不同的 REST 设计原则，以上所列的基本上都是大家公认的原则。 
+
+REST 设计原则中，还有一些原则因为内容比较多，并且可以独立成模块，所以放在后面来讲。比如 RESTful API 安全性、状态返回码和认证等。
+
+### REST 示例 
+
+上面介绍了一些概念和原则，这里通过一个“Hello World”程序，来用 Go 快速启动一个 RESTful API 服务，示例代码存放在gopractisedemo/apistyle/ping/main.go。
+
+```go
+package main
+
+import (
+   "log"
+   "net/http"
+)
+
+func main() {
+   http.HandleFunc("/ping", pong)
+   log.Println("Starting http server ...")
+   log.Fatal(http.ListenAndServe(":50052", nil))
+}
+
+func pong(w http.ResponseWriter, r *http.Request) {
+   w.Write([]byte("pong"))
+}
+```
+
+在上面的代码中，通过 http.HandleFunc，向 HTTP 服务注册了一个 pong handler，在 pong handler 中，编写了真实的业务代码：返回 pong 字符串。 
+
+创建完 main.go 文件后，在当前目录下执行 go run main.go 启动 HTTP 服务，在一个新的 Linux 终端下发送 HTTP 请求，进行使用 curl 命令测试：
+
+```go
+$ curl http://127.0.0.1:50052/ping
+pong
+```
+
+### 总结 
+
+介绍了两种常用 API 风格中的一种，RESTful API。
+
+REST 是一种 API 规范，而 RESTful API 则是满足这种规范的 API 接口，RESTful API 的核心是规范。 
+
+在 REST 规范中，资源通过 URI 来标识，资源名使用名词而不是动词，并且用名词复数表示，资源都是分为 Collection 和 Member 两种。
+
+RESTful API 中，分别使用 POST、 DELETE、PUT、GET 来表示 REST 资源的增删改查，HTTP 方法、Collection、Member 不同组合会产生不同的操作，具体的映射可以看下 REST 资源操作映射为 HTTP 方法部分的表格。 
+
+为了方便用户使用和理解，每个 RESTful API 的返回格式、错误和正确消息的返回格式，都应该保持一致。
+
+RESTful API 需要支持 API 版本，并且版本应该能够向前兼容，可以将版本号放在 URL 中、HTTP Header 中、Form 参数中，但这里建议将版本号放在 URL 中，例如 /v1/users，这种形式比较直观。
+
+另外，可以通过脊柱命名法来命名 API 接口名。对于一个 REST 资源，其查询接口还应该支持分页 / 过滤 / 排序 / 搜索功能，这些功能可以用同一套机制来实现。 
+
+API 的域名可以采用 https://marmotedu.com/api 和 https://iam.api.marmotedu.com 两种格式。 
+
+最后，在 Go 中可以使用 net/http 包来快速启动一个 RESTful API 服务。 
+
+### 课后练习
+
+- 使用 net/http 包，快速实现一个 RESTful API 服务，并实现 /hello 接口，该接口会返回“Hello World”字符串。 
+- 思考一下，RESTful API 这种 API 风格是否能够满足当前的项目需要，如果不满足， 原因是什么？
+
+
+
+## API 风格设计之 RPC API
+
+如何设计应用的 API 风格。 
+
+上一讲，介绍了 REST API 风格，这一讲来介绍下另外一种常用的 API 风格，RPC。 
+
+在 Go 项目开发中，如果业务对性能要求比较高，并且需要提供给多种编程语言调用，这时候就可以考虑使用 RPC API 接口。RPC 在 Go 项目开发中用得也非常多，需要认真掌握。 
+
+### RPC 介绍 
+
+根据维基百科的定义，RPC（Remote Procedure Call），即远程过程调用，是一个计算机通信协议。该协议允许运行于一台计算机的程序调用另一台计算机的子程序，而程序员不用额外地为这个交互作用编程。
+
+通俗来讲，就是服务端实现了一个函数，客户端使用 RPC 框架提供的接口，像调用本地函数一样调用这个函数，并获取返回值。RPC 屏蔽了底层的网络通信细节，使得开发人员无需关注网络编程的细节，可以将更多的时间和精力放在业务逻辑本身的实现上，从而提高开发效率。 
+
+RPC 的调用过程如下图所示：
+
+![image-20211115223125427](IAM-document.assets/image-20211115223125427.png)
+
+RPC 调用具体流程如下：
+
+1. Client 通过本地调用，调用 Client Stub。 
+2. Client Stub 将参数打包（也叫 Marshalling）成一个消息，然后发送这个消息。 
+3. Client 所在的 OS 将消息发送给 Server。
+4. Server 端接收到消息后，将消息传递给 Server Stub。
+5. Server Stub 将消息解包（也叫 Unmarshalling）得到参数。 
+6. Server Stub 调用服务端的子程序（函数），处理完后，将最终结果按照相反的步骤返回给 Client。
+
+这里需要注意，Stub 负责调用参数和返回值的流化（serialization）、参数的打包和解包，以及网络层的通信。Client 端一般叫 Stub，Server 端一般叫 Skeleton。 
+
+目前，业界有很多优秀的 RPC 协议，例如腾讯的 Tars、阿里的 Dubbo、微博的 Motan、Facebook 的 Thrift、RPCX，等等。但使用最多的还是 gRPC，这也是本专栏所采用的 RPC 框架，所以接下来会重点介绍 gRPC 框架。
+
+### gRPC 介绍 
+
+gRPC 是由 Google 开发的高性能、开源、跨多种编程语言的通用 RPC 框架，基于 HTTP 2.0 协议开发，默认采用 Protocol Buffers 数据序列化协议。gRPC 具有如下特性：
+
+- 支持多种语言，例如 Go、Java、C、C++、C#、Node.js、PHP、Python、Ruby 等。 
+- 基于 IDL（Interface Definition Language）文件定义服务，通过 proto3 工具生成指定语言的数据结构、服务端接口以及客户端 Stub。通过这种方式，也可以将服务端和客户端解耦，使客户端和服务端可以并行开发。 
+- 通信协议基于标准的 HTTP/2 设计，支持双向流、消息头压缩、单 TCP 的多路复用、服务端推送等特性。 
+- 支持 Protobuf 和 JSON 序列化数据格式。Protobuf 是一种语言无关的高性能序列化框架，可以减少网络传输流量，提高通信效率。
+
+这里要注意的是，gRPC 的全称不是 golang Remote Procedure Call，而是 google Remote Procedure Call。 
+
+gRPC 的调用如下图所示：
+
+![image-20211115223619830](IAM-document.assets/image-20211115223619830.png)
+
+在 gRPC 中，客户端可以直接调用部署在不同机器上的 gRPC 服务所提供的方法，调用远端的 gRPC 方法就像调用本地的方法一样，非常简单方便，通过 gRPC 调用，可以非常容易地构建出一个分布式应用。 
+
+像很多其他的 RPC 服务一样，gRPC 也是通过 IDL 语言，预先定义好接口（接口的名字、 传入参数和返回参数等）。在服务端，gRPC 服务实现所定义的接口。在客户端， gRPC 存根提供了跟服务端相同的方法。 
+
+gRPC 支持多种语言，比如可以用 Go 语言实现 gRPC 服务，并通过 Java 语言客户端调用 gRPC 服务所提供的方法。通过多语言支持，编写的 gRPC 服务能满足客户端多语言的需求。 
+
+gRPC API 接口通常使用的数据传输格式是 Protocol Buffers。接下来，就一起了解下 Protocol Buffers。
+
+### Protocol Buffers 介绍 
+
+Protocol Buffers（ProtocolBuffer/ protobuf）是 Google 开发的一套对数据结构进行序列化的方法，可用作（数据）通信协议、数据存储格式等，也是一种更加灵活、高效的数据格式，与 XML、JSON 类似。它的传输性能非常好，所以常被用在一些对数据传输性能要求比较高的系统中，作为数据传输格式。Protocol Buffers 的主要特性有下面这几个。
+
+- 更快的数据传输速度：protobuf 在传输时，会将数据序列化为二进制数据，和 XML、 JSON 的文本传输格式相比，这可以节省大量的 IO 操作，从而提高数据传输速度。 
+- 跨平台多语言：protobuf 自带的编译工具 protoc 可以基于 protobuf 定义文件，编译出不同语言的客户端或者服务端，供程序直接调用，因此可以满足多语言需求的场景。 
+- 具有非常好的扩展性和兼容性，可以更新已有的数据结构，而不破坏和影响原有的程序。 
+- 基于 IDL 文件定义服务，通过 proto3 工具生成指定语言的数据结构、服务端和客户端接口。
+
+在 gRPC 的框架中，Protocol Buffers 主要有三个作用。 
+
+第一，可以用来定义数据结构。
+
+举个例子，下面的代码定义了一个 SecretInfo 数据结构：
+
+```go
+// SecretInfo contains secret details.
+message SecretInfo {
+  string name = 1;
+  string secret_id = 2;
+  string username = 3;
+  string secret_key = 4;
+  int64 expires = 5;
+  string description = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+```
+
+第二，可以用来定义服务接口。
+
+下面的代码定义了一个 Cache 服务，服务包含了 ListSecrets 和 ListPolicies 两个 API 接口。
+
+```go
+// Cache implements a cache rpc service.
+service Cache{
+rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse) {}
+rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse) {}
+}
+```
+
+第三，可以通过 protobuf 序列化和反序列化，提升传输效率。
+
+### gRPC 示例 
+
+已经对 gRPC 这一通用 RPC 框架有了一定的了解，可能还不清楚怎么使用 gRPC 编写 API 接口。接下来，就通过 gRPC 官方的一个示例来快速给大家展示下。运行本示例需要在 Linux 服务器上安装 Go 编译器、Protocol buffer 编译器（protoc， v3）和 protoc 的 Go 语言插件。
+
+这个示例分为下面几个步骤：
+
+- 定义 gRPC 服务。 
+- 生成客户端和服务器代码。 
+- 实现 gRPC 服务。 
+- 实现 gRPC 客户端。
+
+示例代码存放在 gopractise-demo/apistyle/greeter目录下。代码结构如下：
+
+```sh
+$ tree
+.
+├── client
+│   └── main.go
+├── helloworld
+│   ├── helloworld.pb.go
+│   └── helloworld.proto
+└── server
+    └── main.go
+```
+
+client 目录存放 Client 端的代码，helloworld 目录用来存放服务的 IDL 定义，server 目录用来存放 Server 端的代码。 
+
+下面具体介绍下这个示例的四个步骤。
+
+#### 定义 gRPC 服务
+
+首先，需要定义服务。进入 helloworld 目录，新建文件 helloworld.proto：
+
+```sh
+$ cd helloworld
+$ vi helloworld.proto
+```
+
+内容如下：
+
+```protobuf
+syntax = "proto3";
+
+option go_package = "github.com/marmotedu/gopractise-demo/apistyle/greeter/helloworld";
+
+package helloworld;
+
+// The greeting service definition.
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+}
+
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings
+message HelloReply {
+  string message = 1;
+}
+```
+
+在 helloworld.proto 定义文件中，
+
+- option 关键字用来对.proto 文件进行一些设置，其中 go_package 是必需的设置，而且 go_package 的值必须是包导入的路径。
+
+- package 关键字指定生成的.pb.go 文件所在的包名。
+
+- 通过 service 关键字定义服务，然后再指定该服务拥有的 RPC 方法，并定义方法的请求和返回的结构体类型：
+
+  - ```protobuf
+    service Greeter {
+      // Sends a greeting
+      rpc SayHello (HelloRequest) returns (HelloReply) {}
+    }
+    ```
+
+gRPC 支持定义 4 种类型的服务方法，分别是简单模式、服务端数据流模式、客户端数据流模式和双向数据流模式。
+
+- 简单模式（Simple RPC）：是最简单的 gRPC 模式。客户端发起一次请求，服务端响应一个数据。定义格式为 rpc SayHello (HelloRequest) returns (HelloReply) {}。 
+- 服务端数据流模式（Server-side streaming RPC）：客户端发送一个请求，服务器返回数据流响应，客户端从流中读取数据直到为空。定义格式为 rpc SayHello (HelloRequest) returns (stream HelloReply) {}。 
+- 客户端数据流模式（Client-side streaming RPC）：客户端将消息以流的方式发送给服务器，服务器全部处理完成之后返回一次响应。定义格式为 rpc SayHello (stream HelloRequest) returns (HelloReply) {}。 
+- 双向数据流模式（Bidirectional streaming RPC）：客户端和服务端都可以向对方发送数据流，这个时候双方的数据可以同时互相发送，也就是可以实现实时交互 RPC 框架原理。定义格式为 rpc SayHello (stream HelloRequest) returns (stream HelloReply) {}。
+
+本示例使用了简单模式。.proto 文件也包含了 Protocol Buffers 消息的定义，包括请求消息和返回消息。例如请求消息：
+
+```protobuf
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+```
+
+#### 生成客户端和服务器代码
+
+接下来，需要根据.proto 服务定义生成 gRPC 客户端和服务器接口。可以使用 protoc 编译工具，并指定使用其 Go 语言插件来生成：
+
+```sh
+$ protoc -I. --go_out=plugins=grpc:$GOPATH/src helloworld.proto
+$ ls
+helloworld.pb.go helloworld.proto
+```
+
+可以看到，新增了一个 helloworld.pb.go 文件。
+
+#### 实现 gRPC 服务
+
+接着，就可以实现 gRPC 服务了。进入 server 目录，新建 main.go 文件：
+
+```sh
+$ cd ../server
+$ vi main.go
+```
+
+main.go 内容如下：
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net"
+
+	pb "github.com/marmotedu/gopractise-demo/apistyle/greeter/helloworld"
+	"google.golang.org/grpc"
+)
+
+const (
+	port = ":50051"
+)
+
+// server is used to implement helloworld.GreeterServer.
+type server struct {
+	pb.UnimplementedGreeterServer
+}
+
+// SayHello implements helloworld.GreeterServer
+func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
+	log.Printf("Received: %v", in.GetName())
+	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
+}
+
+func main() {
+	lis, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterGreeterServer(s, &server{})
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+```
+
+上面的代码实现了上一步根据服务定义生成的 Go 接口。 
+
+先定义了一个 Go 结构体 server，并为 server 结构体添加 SayHello(context.Context, pb.HelloRequest) (pb.HelloReply, error) 方法，也就是说 server 是 GreeterServer 接口（位于 helloworld.pb.go 文件中）的一个实现。 
+
+在实现了 gRPC 服务所定义的方法之后，就可以通过 net.Listen(...) 指定监听客户端请求的端口；接着，通过 grpc.NewServer() 创建一个 gRPC Server 实例，并通过 pb.RegisterGreeterServer(s, &server{}) 将该服务注册到 gRPC 框架中；最后，通过 s.Serve(lis) 启动 gRPC 服务。 
+
+创建完 main.go 文件后，在当前目录下执行 `go run main.go` ，启动 gRPC 服务。
+
+#### 实现 gRPC 客户端
+
+打开一个新的 Linux 终端，进入 client 目录，新建 main.go 文件：
+
+```sh
+$ cd ../client
+$ vi main.go
+```
+
+main.go 内容如下：
+
+```go
+// Package main implements a client for Greeter service.
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"time"
+
+	pb "github.com/marmotedu/gopractise-demo/apistyle/greeter/helloworld"
+	"google.golang.org/grpc"
+)
+
+const (
+	address     = "localhost:50051"
+	defaultName = "world"
+)
+
+func main() {
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewGreeterClient(conn)
+
+	// Contact the server and print out its response.
+	name := defaultName
+	if len(os.Args) > 1 {
+		name = os.Args[1]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r, err := c.SayHello(ctx, &pb.HelloRequest{Name: name})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	log.Printf("Greeting: %s", r.Message)
+}
+```
+
+在上面的代码中，通过如下代码创建了一个 gRPC 连接，用来跟服务端进行通信：
+
+```go
+// Set up a connection to the server.
+conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+if err != nil {
+   log.Fatalf("did not connect: %v", err)
+}
+defer conn.Close()
+```
+
+在创建连接时，可以指定不同的选项，用来控制创建连接的方式，例如 grpc.WithInsecure()、grpc.WithBlock() 等。gRPC 支持很多选项，更多的选项可以参考 grpc 仓库下 dialoptions.go 文件中以 With 开头的函数。 
+
+连接建立起来之后，需要创建一个客户端 stub，用来执行 RPC 请求c := pb.NewGreeterClient(conn)。
+
+创建完成之后，就可以像调用本地函数一样，调用远程的方法了。例如，下面一段代码通过 c.SayHello 这种本地式调用方式调用了远端 的 SayHello 接口：
+
+```go
+r, err := c.SayHello(ctx, &pb.HelloRequest{Name: name})
+if err != nil {
+   log.Fatalf("could not greet: %v", err)
+}
+log.Printf("Greeting: %s", r.Message)
+```
+
+从上面的调用格式中，可以看到 RPC 调用具有下面两个特点。
+
+- 调用方便：RPC 屏蔽了底层的网络通信细节，使得调用 RPC 就像调用本地方法一样方便，调用方式跟大家所熟知的调用类的方法一致：ClassName.ClassFuc(params)。 
+- 不需要打包和解包：RPC 调用的入参和返回的结果都是 Go 的结构体，不需要对传入参数进行打包操作，也不需要对返回参数进行解包操作，简化了调用步骤。
+
+最后，创建完 main.go 文件后，在当前目录下，执行 go run main.go 发起 RPC 调用：
+
+```sh
+$ go run main.go
+2021/11/15 23:57:42 Greeting: Hello world
+
+# 如果遇到错误，eg: This download does NOT match an earlier download recorded in go.sum.
+# 解决办法：
+# remove go.sum : rm go.sum
+# regenerate go.sum : go mod tidy
+```
+
+至此，用四个步骤，创建并调用了一个 gRPC 服务。
+
+### 具体场景：指针判断 nil
+
+接下来再讲解一个在具体场景中的注意事项。 
+
+在做服务开发时，经常会遇到一种场景：定义一个接口，接口会通过判断是否传入某个参数，决定接口行为。例如，想提供一个 GetUser 接口，期望 GetUser 接口在传入 username 参数时，根据 username 查询用户的信息，如果没有传入 username，则默认根据 userId 查询用户信息。 
+
+这时候，需要判断客户端有没有传入 username 参数。不能根据 username 是否 为空值来判断，因为不能区分客户端传的是空值，还是没有传 username 参数。这是由 Go 语言的语法特性决定的：如果客户端没有传入 username 参数，Go 会默认赋值为所在类型的零值，而字符串类型的零值就是空字符串。 
+
+那怎么判断客户端有没有传入 username 参数呢？最好的方法是通过指针来判断，如果是 nil 指针就说明没有传入，非 nil 指针就说明传入，具体实现步骤如下：
+
+#### 编写 protobuf 定义文件
+
+新建 user.proto 文件，内容如下:
+
+```protobuf
+syntax = "proto3";
+
+package proto;
+option go_package = "github.com/marmotedu/gopractise-demo/protobuf/user";
+
+//go:generate protoc -I. --experimental_allow_proto3_optional --go_out=plugins=grpc:. user.proto
+
+service User {
+	rpc GetUser(GetUserRequest) returns (GetUserResponse) {}
+}
+
+message GetUserRequest {
+  string class = 1;
+  optional string username = 2;
+  optional string user_id = 3;
+}
+
+message GetUserResponse {
+  string class = 1;
+  string user_id = 2;
+  string username = 3;
+  string address = 4;
+  string sex = 5;
+  string phone = 6;
+}
+```
+
+需要注意，这里在需要设置为可选字段的前面添加了 optional 标识。
+
+#### 使用 protoc 工具编译 protobuf 文件
+
+在执行 protoc 命令时，需要传入--experimental_allow_proto3_optional参数以打开 optional 选项，编译命令如下：
+
+```sh
+$ protoc --experimental_allow_proto3_optional --go_out=plugins=grpc:. user.proto
+```
+
+上述编译命令会生成 user.pb.go 文件，其中的 GetUserRequest 结构体定义如下：
+
+```go
+type GetUserResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Class    string `protobuf:"bytes,1,opt,name=class,proto3" json:"class,omitempty"`
+	UserId   string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username string `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
+}
+```
+
+通过 optional + --experimental_allow_proto3_optional 组合，可以将一个字段编译为指针类型。
+
+#### 编写 gRPC 接口实现
+
+新建一个 user.go 文件，内容如下：
+
+```go
+package user
+
+import (
+	"context"
+
+	pb "github.com/marmotedu/api/proto/apiserver/v1"
+
+	"github.com/marmotedu/iam/internal/apiserver/store"
+)
+
+type User struct {
+}
+
+func (c *User) GetUser(ctx context.Context, r *pb.GetUserRequest) (*pb.GetUserResponse, error) {
+	if r.Username != nil {
+		return store.Client().Users().GetUserByName(r.Class, r.Username)
+	}
+
+	return store.Client().Users().GetUserByID(r.Class, r.UserId)
+}
+```
+
+总之，在 GetUser 方法中，可以通过判断 r.Username 是否为 nil，来判断客户端是否传入了 Username 参数。
+
+### RESTful VS gRPC 
+
+到这里，已经介绍完了 gRPC API。回想一下 RESTful API，可能想问：这两种 API 风格分别有什么优缺点，适用于什么场景呢？把这个问题的答案放在了下面这张表中，可以对照着它，根据自己的需求在实际应用时进行选择。
+
+![image-20211116002601073](IAM-document.assets/image-20211116002601073.png)
+
+当然，更多的时候，RESTful API 和 gRPC API 是一种合作的关系，对内业务使用 gRPC API，对外业务使用 RESTful API，如下图所示：
+
+![image-20211116002803542](IAM-document.assets/image-20211116002803542.png)
+
+### 总结 
+
+在 Go 项目开发中，可以选择使用 RESTful API 风格和 RPC API 风格，这两种服务都用得很多。
+
+- 其中，RESTful API 风格因为规范、易理解、易用，所以适合用在需要对外提供 API 接口的场景中。
+- 而 RPC API 因为性能比较高、调用方便，更适合用在内部业务中。 
+- RESTful API 使用的是 HTTP 协议，而 RPC API 使用的是 RPC 协议。
+
+目前，有很多 RPC 协议可供选择，推荐使用 gRPC，因为它很轻量，同时性能很高、很稳定，是一个优秀的 RPC 框架。所以目前业界用的最多的还是 gRPC 协议，腾讯、阿里等大厂内部很多核心的线上服务用的就是 gRPC。 
+
+除了使用 gRPC 协议，在进行 Go 项目开发前，也可以了解业界一些其他的优秀 Go RPC 框架，比如腾讯的 tars-go、阿里的 dubbo-go、Facebook 的 thrift、rpcx 等，可以在项目开发之前一并调研，根据实际情况进行选择。
+
+### 课后练习
+
+- 使用 gRPC 包，快速实现一个 RPC API 服务，并实现 PrintHello 接口，该接口会返回“Hello World”字符串。 
+- 请思考这个场景：有一个 gRPC 服务，但是却希望该服务同时也能提供 RESTful API 接口，这该如何实现？
+  - 假定希望用RPC作为内部API的通讯，同时也想对外提供RESTful API，又不想写两套，可以使用gRPC Gateway 插件，在生成RPC的同时也生成RESTful web server。
+
+
+
+## 项目管理之 Makefile
 
 
 
