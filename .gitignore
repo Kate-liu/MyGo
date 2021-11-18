@@ -11,6 +11,6 @@
 
 
 # iam project
-*/bin/*
-*/pkg/*
-./src/*
+/bin/*
+/pkg/*
+/src/*
