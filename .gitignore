@@ -8,3 +8,9 @@
 
 # images
 */*.assets/*
+
+
+# iam project
+*/bin/*
+*/pkg/*
+./src/*
