@@ -14,3 +14,7 @@
 /bin/*
 /pkg/*
 /src/*
+
+
+# log file
+*.log
