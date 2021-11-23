@@ -19,6 +19,7 @@ require (
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/mock v1.6.0
 	github.com/jessevdk/go-flags v1.5.0
+	github.com/json-iterator/go v1.1.11
 	github.com/marmotedu/api v1.0.1
 	github.com/marmotedu/errors v1.0.2
 	github.com/marmotedu/gopractise-demo v0.0.1
