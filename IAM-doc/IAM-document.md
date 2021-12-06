@@ -15109,6 +15109,272 @@ go-admin、gin-vue-admin、gin-admin 这 3 个都是基于 Casbin 的 Go 项目�
 
 # GO项目之IAM：iam-apiserver设计
 
+接下来，就讲解下 IAM 应用的源码。 
+
+在讲解过程中，不会去讲解具体如何 Code，但会讲解一些构建过程中的重点、难点，以 及 Code 背后的设计思路、想法。
+
+IAM 项目有很多组件，这一讲，先来介绍下 IAM 项目的门面服务：iam-apiserver（管 理流服务）。先介绍下 iam-apiserver 的功能和使用方法，再介绍下 iam-apiserver 的代码实现。
+
+### iam-apiserver 服务介绍 
+
+iam-apiserver 是一个 Web 服务，通过一个名为 iam-apiserver 的进程，对外提供 RESTful API 接口，完成用户、密钥、策略三种 REST 资源的增删改查。
+
+接下来，从功能和使用方法两个方面来具体介绍下。 
+
+#### iam-apiserver 功能介绍 
+
+可以通过 iam-apiserver 提供的 RESTful API 接口，来看下 iam-apiserver 具体提供的功能。iam-apiserver 提供的 RESTful API 接口可以分为四类，具体如下： 
+
+##### 认证相关接口
+
+![image-20211206234356553](IAM-document.assets/image-20211206234356553.png)
+
+##### 用户相关接口
+
+![image-20211206234423037](IAM-document.assets/image-20211206234423037.png)
+
+##### 密钥相关接口
+
+![image-20211206234510692](IAM-document.assets/image-20211206234510692.png)
+
+##### 策略相关接口
+
+![image-20211206234534329](IAM-document.assets/image-20211206234534329.png)
+
+#### iam-apiserver 使用方法介绍 
+
+上面介绍了 iam-apiserver 的功能，接下来就介绍下如何使用这些功能。 
+
+可以通过不同的客户端来访问 iam-apiserver，例如前端、API 调用、SDK、iamctl 等。这些客户端最终都会执行 HTTP 请求，调用 iam-apiserver 提供的 RESTful API 接口。
+
+所以，首先需要有一个顺手的 REST API 客户端工具来执行 HTTP 请求，完成开发测试。 
+
+因为不同的开发者执行 HTTP 请求的方式、习惯不同，为了方便讲解，这里统一通过 cURL 工具来执行 HTTP 请求。接下来先介绍下 cURL 工具。 
+
+##### cURL 工具
+
+标准的 Linux 发行版都安装了 cURL 工具。cURL 可以很方便地完成 RESTful API 的调用场景，比如设置 Header、指定 HTTP 请求方法、指定 HTTP 消息体、指定权限认证信息 等。通过-v选项，也能输出 REST 请求的所有返回信息。cURL 功能很强大，有很多参 数，这里列出 cURL 工具常用的参数：
+
+```sh
+-X/--request [GET|POST|PUT|DELETE|…] 指定请求的 HTTP 方法
+-H/--header 指定请求的 HTTP Header
+-d/--data 指定请求的 HTTP 消息体（Body）
+-v/--verbose 输出详细的返回信息
+-u/--user 指定账号、密码
+-b/--cookie 读取 cookie
+```
+
+此外，如果想使用带 UI 界面的工具，这里我推荐你使用 Insomnia 。 
+
+##### Insomnia 工具
+
+Insomnia 是一个跨平台的 REST API 客户端，与 Postman、Apifox 是一类工具，用于接 口管理、测试。Insomnia 功能强大，支持以下功能：
+
+- 发送 HTTP 请求； 
+- 创建工作区或文件夹； 
+- 导入和导出数据； 
+- 导出 cURL 格式的 HTTP 请求命令； 
+- 支持编写 swagger 文档； 
+- 快速切换请求； 
+- URL 编码和解码。 
+- …
+
+Insomnia 界面如下图所示：
+
+![image-20211206235413146](IAM-document.assets/image-20211206235413146.png)
+
+当然了，也有很多其他优秀的带 UI 界面的 REST API 客户端，例如 Postman、Apifox 等，可以根据需要自行选择。 
+
+##### secret 资源的 CURD
+
+接下来，用对 secret 资源的 CURD 操作，来演示下如何使用 iam-apiserver 的功 能。需要执行 6 步操作。
+
+1. 登录 iam-apiserver，获取 token。 
+2. 创建一个名为 secret0 的 secret。 
+3. 获取 secret0 的详细信息。 
+4. 更新 secret0 的描述。
+5. 获取 secret 列表。
+6. 删除 secret0。
+
+具体操作如下：
+
+1. 登录 iam-apiserver，获取 token：
+
+```sh
+$ curl -s -XPOST -H"Authorization: Basic `echo -n 'admin:Admin@2021'|base64`" http://127.0.0.1:8080/login | jq -r .token
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2Mzg4OTM0MDksImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2Mzg4MDcwMDksInN1YiI6ImFkbWluIn0.2vKRDOUDyp9Jyj_Lk73gZR54TPYK52SwbToC_tC8HNo
+```
+
+这里，为了便于使用，将 token 设置为环境变量：
+
+```sh
+TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2Mzg4OTM0MDksImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2Mzg4MDcwMDksInN1YiI6ImFkbWluIn0.2vKRDOUDyp9Jyj_Lk73gZR54TPYK52SwbToC_tC8HNo
+```
+
+2. 创建一个名为 secret0 的 secret：
+
+```SH
+$ curl -v -XPOST -H "Content-Type: application/json" -H"Authorization: Bearer ${TOKEN}" -d'{"metadata":{"name":"secret0"},"expires":0,"description":"admin secret"}' http://iam.api.marmotedu.com:8080/v1/secrets
+
+Note: Unnecessary use of -X or --request, POST is already inferred.
+*   Trying 127.0.0.1...
+* TCP_NODELAY set
+* Connected to iam.api.marmotedu.com (127.0.0.1) port 8080 (#0)
+> POST /v1/secrets HTTP/1.1
+> Host: iam.api.marmotedu.com:8080
+> User-Agent: curl/7.61.1
+> Accept: */*
+> Content-Type: application/json
+> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJpYW0uYXBpLm1hcm1vdGVkdS5jb20iLCJleHAiOjE2Mzg4OTI3MTQsImlkZW50aXR5IjoiYWRtaW4iLCJpc3MiOiJpYW0tYXBpc2VydmVyIiwib3JpZ19pYXQiOjE2Mzg4MDYzMTQsInN1YiI6ImFkbWluIn0.4vSotQOtE8SUW-LUmhm1UVE1ZS2kBaxJ6EFaDU4GUa0
+> Content-Length: 72
+>
+* upload completely sent off: 72 out of 72 bytes
+< HTTP/1.1 200 OK
+< Access-Control-Allow-Origin: *
+< Cache-Control: no-cache, no-store, max-age=0, must-revalidate, value
+< Content-Type: application/json; charset=utf-8
+< Expires: Thu, 01 Jan 1970 00:00:00 GMT
+< Last-Modified: Mon, 06 Dec 2021 16:03:27 GMT
+< X-Content-Type-Options: nosniff
+< X-Frame-Options: DENY
+< X-Request-Id: 9d88e4d1-c888-499f-9ced-34bd6c229bfa
+< X-Xss-Protection: 1; mode=block
+< Date: Mon, 06 Dec 2021 16:03:27 GMT
+< Content-Length: 313
+<
+* Connection #0 to host iam.api.marmotedu.com left intact
+{"metadata":{"id":24,"instanceID":"secret-jpvgjl","name":"secret0","createdAt":"2021-12-07T00:03:27.172+08:00","updatedAt":"2021-12-07T00:03:27.183+08:00"},"username":"admin","secretID":"uFT8uwityjGs7O8LFEO1LfWdgXOzbSu8cSX4","secretKey":"58jxVNRPt7BQswDUkgfhQAsVfPmAASoU","expires":0,"description":"admin secret"}
+```
+
+可以看到，请求返回头中返回了X-Request-Id Header，X-Request-Id唯一标识这次 请求。如果这次请求失败，就可以将X-Request-Id提供给运维或者开发，通过XRequest-Id定位出失败的请求，进行排障。另外X-Request-Id在微服务场景中，也可 以透传给其他服务，从而实现请求调用链。
+
+3. 获取 secret0 的详细信息：
+
+```SH
+$ curl -XGET -H"Authorization: Bearer ${TOKEN}" http://iam.api.marmotedu.com:8080/v1/secrets/secret0
+
+{"metadata":{"id":24,"instanceID":"secret-jpvgjl","name":"secret0","createdAt":"2021-12-07T00:03:27+08:00","updatedAt":"2021-12-07T00:03:27+08:00"},"username":"admin","secretID":"uFT8uwityjGs7O8LFEO1LfWdgXOzbSu8cSX4","secretKey":"58jxVNRPt7BQswDUkgfhQAsVfPmAASoU","expires":0,"description":"admin secret"}
+```
+
+4. 更新 secret0 的描述：
+
+```sh
+$ curl -XPUT -H"Authorization: Bearer ${TOKEN}" -d'{"metadata":{"name":"secret"},"expires":0,"description":"admin secret(modify)"}' http://iam.api.marmotedu.com:8080/v1/secrets/secret0
+
+{"metadata":{"id":24,"instanceID":"secret-jpvgjl","name":"secret0","createdAt":"2021-12-07T00:03:27+08:00","updatedAt":"2021-12-07T00:12:58.582+08:00"},"username":"admin","secretID":"uFT8uwityjGs7O8LFEO1LfWdgXOzbSu8cSX4","secretKey":"58jxVNRPt7BQswDUkgfhQAsVfPmAASoU","expires":0,"description":"admin secret(modify)"}
+```
+
+5. 获取 secret 列表：
+
+```sh
+$ curl -XGET -H"Authorization: Bearer ${TOKEN}" http://iam.api.marmotedu.com:8080/v1/secrets
+
+{"totalCount":2,"items":[{"metadata":{"id":24,"instanceID":"secret-jpvgjl","name":"secret0","createdAt":"2021-12-07T00:03:27+08:00","updatedAt":"2021-12-07T00:12:58+08:00"},"username":"admin","secretID":"uFT8uwityjGs7O8LFEO1LfWdgXOzbSu8cSX4","secretKey":"58jxVNRPt7BQswDUkgfhQAsVfPmAASoU","expires":0,"description":"admin secret(modify)"},{"metadata":{"id":23,"instanceID":"secret-yj8m30","name":"authztest","createdAt":"2021-11-03T00:55:44+08:00","updatedAt":"2021-11-03T00:55:44+08:00"},"username":"admin","secretID":"SuXnTvmGOWu5f95BfonhvYi8uxLBH2y6BOlc","secretKey":"6dF1ENyDWBDGlmR6ipUbUcpkdjgqF5Gh","expires":0,"description":"admin secret"}]}
+```
+
+6. 删除 secret0：
+
+```sh
+$ curl -XDELETE -H"Authorization: Bearer ${TOKEN}" http://iam.api.marmotedu.com:8080/v1/secrets/secret0
+
+null
+```
+
+上面，演示了密钥的使用方法。用户和策略资源类型的使用方法跟密钥类似。详细 的使用方法可以参考 install.sh脚本，该脚本是用来测试 IAM 应用的，里面包含了各个 接口的请求方法。 
+
+##### 测试 IAM 应用的各部分
+
+这里，顺便介绍下如何测试 IAM 应用中的各个部分。确保 iam-apiserver、iam-authz-server、iam-pump 等服务正常运行后，进入到 IAM 项目的根目录，执行以下命 令：
+
+```sh
+$ ./scripts/install/test.sh iam::test::test # 测试整个IAM应用是否正常运行
+$ ./scripts/install/test.sh iam::test::login # 测试登陆接口是否可以正常访问
+$ ./scripts/install/test.sh iam::test::user # 测试用户接口是否可以正常访问
+$ ./scripts/install/test.sh iam::test::secret # 测试密钥接口是否可以正常访问
+$ ./scripts/install/test.sh iam::test::policy # 测试策略接口是否可以正常访问
+$ ./scripts/install/test.sh iam::test::apiserver # 测试iam-apiserver服务是否正常运行
+$ ./scripts/install/test.sh iam::test::authz # 测试authz接口是否可以正常访问
+$ ./scripts/install/test.sh iam::test::authzserver # 测试iam-authz-server服务是否正常运行
+$ ./scripts/install/test.sh iam::test::pump # 测试iam-pump是否正常运行
+$ ./scripts/install/test.sh iam::test::iamctl # 测试iamctl工具是否可以正常使用
+$ ./scripts/install/test.sh iam::test::man # 测试man文件是否正确安装
+```
+
+##### iam-apiserver 的冒烟测试
+
+所以，每次发布完 iam-apiserver 后，可以执行以下命令来完成 iam-apiserver 的冒烟测试：
+
+```sh
+$ export IAM_APISERVER_HOST=127.0.0.1 # iam-apiserver部署服务器的IP地址
+$ export IAM_APISERVER_INSECURE_BIND_PORT=8080 # iam-apiserver HTTP服务的监听端口
+$ ./scripts/install/test.sh iam::test::apiserver
+```
+
+### iam-apiserver 代码实现
+
+上面，介绍了 iam-apiserver 的功能和使用方法，这里再来看下 iam-apiserver 具 体的代码实现。从配置处理、启动流程、请求处理流程、代码架构 4 个方面来讲解。 
+
+#### iam-apiserver 配置处理 
+
+iam-apiserver 服务的 main 函数位于 apiserver.go 文件中，可以跟读代码，了解 iam-apiserver 的代码实现。这里，来介绍下 iam-apiserver 服务的一些设计思想。 
+
+首先，来看下 iam-apiserver 中的 3 种配置：Options 配置、应用配置和 HTTP/GRPC 服务配置。
+
+- Options 配置：用来构建命令行参数，它的值来自于命令行选项或者配置文件（也可能 是二者 Merge 后的配置）。Options 可以用来构建应用框架，Options 配置也是应用 配置的输入。 
+- 应用配置：iam-apiserver 组件中需要的一切配置。有很多地方需要配置，例如，启动 HTTP/GRPC 需要配置监听地址和端口，初始化数据库需要配置数据库地址、用户名、 密码等。 
+- HTTP/GRPC 服务配置：启动 HTTP 服务或者 GRPC 服务需要的配置。
+
+这三种配置的关系如下图：
+
+![image-20211207003149946](IAM-document.assets/image-20211207003149946.png)
+
+Options 配置接管命令行选项，应用配置接管整个应用的配置，HTTP/GRPC 服务配置接 管跟 HTTP/GRPC 服务相关的配置。这 3 种配置独立开来，可以解耦命令行选项、应用和 应用内的服务，使得这 3 个部分可以独立扩展，又不相互影响。 
+
+iam-apiserver 根据 Options 配置来构建命令行参数和应用配置。 
+
+通过 github.com/marmotedu/iam/pkg/app 包(app.go)的 buildCommand 方法来构建命令行参数。这里的核心是，通过 NewApp函数构建 Application 实例时，传入的 Options实现了Flags() (fss cliflag.NamedFlagSets)方法，通过 buildCommand 方法中的以下代码，将 option 的 Flag 添加到 cobra 实例的 FlagSet 中：
+
+```go
+if a.options != nil {
+		namedFlagSets = a.options.Flags()
+		fs := cmd.Flags()
+		for _, f := range namedFlagSets.FlagSets {
+			fs.AddFlagSet(f)
+		}
+
+		...
+	}
+```
+
+通过 CreateConfigFromOptions函数来构建应用配置：
+
+```go
+cfg, err := config.CreateConfigFromOptions(opts)
+if err != nil {
+	return err
+}
+```
+
+根据应用配置来构建 HTTP/GRPC 服务配置。例如，以下代码根据应用配置，构建了 HTTP 服务器的 Address 参数：
+
+```go
+func (s *InsecureServingOptions) ApplyTo(c *server.Config) error {
+  c.InsecureServing = &server.InsecureServingInfo{
+  	Address: net.JoinHostPort(s.BindAddress, strconv.Itoa(s.BindPort)),
+  }
+	return nil
+}
+```
+
+其中，c *server.Config是 HTTP 服务器的配置，s *InsecureServingOptions是 应用配置。 
+
+#### iam-apiserver 启动流程设计 
+
+接下来，详细看下 iam-apiserver 的启动流程设计。启动流程如下图所示：
+
+
+
 
 
 
