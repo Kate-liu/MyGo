@@ -10,11 +10,6 @@
 */*.assets/*
 
 
-# iam project
-/bin/*
-/pkg/*
-/src/*
-
 
 # log file
 *.log

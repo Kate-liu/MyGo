@@ -418,9 +418,7 @@ EOF
 
 因为 Go 以后会用 Go modules 来管理依赖，所以建议将 GO111MODULE 设置为 on。
 
-在使用模块的时候，` $GOPATH` 是无意义的，不过它还是会把下载的依赖储存在 `$GOPATH/pkg/mod`目录中，也会把 go install 的二进制文件存放在 `$GOPATH/bin`目录中。
-
-还要将 `$GOPATH/bin`、`$GOROOT/bin`加入到Linux可执行文件搜索路径中。这样，就可以直接在 bash shell 中执行 go 自带的命令，以及通过 go install 安装的命令。
+在使用模块的时候，` $GOPATH` 是无意义的，不过它还是会把下载的依赖储存在 `$GOPATH/pkg/mod`目录中，也会把 go install 的二进制文件存放在 `$GOPATH/bin`目录中。所以，还要将 `$GOPATH/bin`、`$GOROOT/bin`加入到Linux可执行文件搜索路径中。这样，就可以直接在 bash shell 中执行 go 自带的命令，以及通过 go install 安装的命令。
 
 最后进行测试，执行 go version 命令，可以成功输出 Go 的版本，就说明 Go 编译环境安装成功。具体命令如下：
 
@@ -487,7 +485,7 @@ $ sudo yum -y install neovim
 
 第二步，配置 `$HOME/.bashrc`。
 
-先配置 nvim 的别名为 vi，这样当我们执行 vi 时，Linux 系统就会默认调用 nvim。同时，配置 EDITOR 环境变量，可以使一些工具，例如 Git 默认使用 nvim。配置方法如下：
+先配置 nvim 的别名为 vi，这样当执行 vi 时，Linux 系统就会默认调用 nvim。同时，配置 EDITOR 环境变量，可以使一些工具，例如 Git 默认使用 nvim。配置方法如下：
 
 ```bash
 tee -a $HOME/.bashrc <<'EOF'
@@ -538,7 +536,7 @@ SpaceVim 会用到一些 Go 工具，比如在函数跳转时会用到 guru、go
 1. Vim 底线命令安装：vi test.go，然后执行：`:GoInstallBinaries` 安装。
 2. 拷贝工具：直接将整理好的工具文件拷贝到 `$GOPATH/bin` 目录下。
 
-为了方便，可以直接拷贝我已经打包好的 Go 工具到指定目录下：
+为了方便，可以直接拷贝已经打包好的 Go 工具到指定目录下：
 
 ```bash
 $ cd /tmp
@@ -15375,7 +15373,7 @@ func (s *InsecureServingOptions) ApplyTo(c *server.Config) error {
 
 
 
-
+困的很，睡觉吧！
 
 
 
